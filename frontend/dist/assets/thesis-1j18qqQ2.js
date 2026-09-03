@@ -1,0 +1,1 @@
+import{a9 as t}from"./index-C4AW3xbL.js";const n={list(e){return t.get("/theses",e)},get(e){return t.get(`/theses/${e}`)},create(e){return t.post("/theses",e)},update(e,s){return t.put(`/theses/${e}`,s)},delete(e){return t.delete(`/theses/${e}`)}};export{n as t};
