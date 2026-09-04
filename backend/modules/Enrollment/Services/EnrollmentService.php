@@ -5,6 +5,7 @@ namespace Modules\Enrollment\Services;
 use Modules\Enrollment\Actions\AddEnrollmentItemAction;
 use Modules\Enrollment\Actions\ApproveEnrollmentAction;
 use Modules\Enrollment\Actions\CreateEnrollmentAction;
+use Modules\Enrollment\Actions\LoadKrsPackageAction;
 use Modules\Enrollment\Actions\LockEnrollmentAction;
 use Modules\Enrollment\Actions\RejectEnrollmentAction;
 use Modules\Enrollment\Actions\RemoveEnrollmentItemAction;
@@ -23,7 +24,8 @@ class EnrollmentService
         protected ApproveEnrollmentAction $approveEnrollmentAction,
         protected RejectEnrollmentAction $rejectEnrollmentAction,
         protected RequestRevisionAction $requestRevisionAction,
-        protected LockEnrollmentAction $lockEnrollmentAction
+        protected LockEnrollmentAction $lockEnrollmentAction,
+        protected LoadKrsPackageAction $loadKrsPackageAction,
     ) {}
 
     public function create(array $data): StudentEnrollment
@@ -31,9 +33,9 @@ class EnrollmentService
         return $this->createEnrollmentAction->execute($data);
     }
 
-    public function addItem(StudentEnrollment $enrollment, int $classId, ?string $notes = null): StudentEnrollmentItem
+    public function addItem(StudentEnrollment $enrollment, int $classId, ?string $notes = null, bool $bypassCurriculum = false): StudentEnrollmentItem
     {
-        return $this->addEnrollmentItemAction->execute($enrollment, $classId, $notes);
+        return $this->addEnrollmentItemAction->execute($enrollment, $classId, $notes, $bypassCurriculum);
     }
 
     public function removeItem(StudentEnrollment $enrollment, StudentEnrollmentItem $item): bool
@@ -64,5 +66,14 @@ class EnrollmentService
     public function lock(StudentEnrollment $enrollment, int $userId): StudentEnrollment
     {
         return $this->lockEnrollmentAction->execute($enrollment, $userId);
+    }
+
+    /**
+     * Load a KRS Package template into an enrollment.
+     * Returns array with 'added' (success) and 'failed' (with reasons) lists.
+     */
+    public function loadPackage(StudentEnrollment $enrollment, int $packageId): array
+    {
+        return $this->loadKrsPackageAction->execute($enrollment, $packageId);
     }
 }

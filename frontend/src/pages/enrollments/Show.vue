@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Info, Plus, Trash2, Send, CheckCircle2, AlertTriangle, Clock, BookOpen, Calendar } from 'lucide-vue-next'
+import { ArrowLeft, Info, Plus, Trash2, CheckCircle2, AlertTriangle, Clock, BookOpen, Calendar, Package } from 'lucide-vue-next'
 import { enrollmentService } from '@/services/api/enrollments'
+import { krsPackageService } from '@/services/api/krsPackages'
 import { useToast } from '@/composables/useToast'
 import { useAuth } from '@/composables/useAuth'
 import type { StudentEnrollment } from '@/types/enrollment'
+import type { KrsPackage } from '@/types/enrollment'
 import PageContainer from '@/components/data-display/PageContainer.vue'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import SelectClassModal from './components/SelectClassModal.vue'
+import EnrollmentWorkflowActions from './components/EnrollmentWorkflowActions.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,6 +24,12 @@ const enrollment = ref<StudentEnrollment | null>(null)
 const loading = ref<boolean>(true)
 const submitting = ref<boolean>(false)
 const selectClassOpen = ref<boolean>(false)
+
+// Load KRS Package
+const loadPackageModalOpen = ref<boolean>(false)
+const packages = ref<KrsPackage[]>([])
+const loadingPackages = ref<boolean>(false)
+const loadingPackageId = ref<number | null>(null)
 
 function formatDateIndo(dateStr?: string | null) {
   if (!dateStr) return '-'
@@ -88,11 +97,13 @@ async function handleSubmitKrs() {
   }
 }
 
-async function handleApproveKrs() {
+// ─── Workflow Handlers ───────────────────────────────────────────────────────
+
+async function handleApproveKrs(notes?: string) {
   if (!enrollment.value) return
   submitting.value = true
   try {
-    const res = await enrollmentService.approve(enrollment.value.id)
+    const res = await enrollmentService.approve(enrollment.value.id, notes)
     enrollment.value = res.data
     toast.success('KRS mahasiswa berhasil disetujui!')
   } catch (err: any) {
@@ -102,24 +113,84 @@ async function handleApproveKrs() {
   }
 }
 
-async function handleRejectKrs() {
+async function handleRejectKrs(reason: string) {
   if (!enrollment.value) return
-  const reason = prompt('Masukkan alasan permintaan revisi/penolakan KRS:')
-  if (reason === null) return
-  if (!reason.trim()) {
-    toast.error('Alasan revisi wajib diisi.')
-    return
-  }
-
   submitting.value = true
   try {
     const res = await enrollmentService.reject(enrollment.value.id, reason)
     enrollment.value = res.data
-    toast.warning('KRS telah dikembalikan ke mahasiswa untuk direvisi.')
+    toast.warning('KRS mahasiswa telah ditolak.')
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || 'Gagal menolak KRS')
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function handleRequestRevision(notes: string) {
+  if (!enrollment.value) return
+  submitting.value = true
+  try {
+    const res = await enrollmentService.requestRevision(enrollment.value.id, notes)
+    enrollment.value = res.data
+    toast.warning('Permintaan revisi KRS berhasil dikirim ke mahasiswa.')
   } catch (err: any) {
     toast.error(err.response?.data?.message || 'Gagal meminta revisi KRS')
   } finally {
     submitting.value = false
+  }
+}
+
+async function handleLockKrs() {
+  if (!enrollment.value) return
+  submitting.value = true
+  try {
+    const res = await enrollmentService.lock(enrollment.value.id)
+    enrollment.value = res.data
+    toast.success('KRS berhasil dikunci (locked).')
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || 'Gagal mengunci KRS')
+  } finally {
+    submitting.value = false
+  }
+}
+
+// ─── Load Package ──────────────────────────────────────────────────────────────
+
+async function handleOpenLoadPackage() {
+  if (!enrollment.value) return
+  loadingPackages.value = true
+  loadPackageModalOpen.value = true
+  try {
+    const programId = enrollment.value.student?.study_program_id
+    const res = await krsPackageService.list(programId ? { study_program_id: programId } : undefined)
+    packages.value = res.data || []
+  } catch {
+    toast.error('Gagal memuat daftar paket KRS.')
+  } finally {
+    loadingPackages.value = false
+  }
+}
+
+async function handleLoadPackage(pkg: KrsPackage) {
+  if (!enrollment.value) return
+  loadingPackageId.value = pkg.id
+  try {
+    const res = await enrollmentService.loadPackage(enrollment.value.id, pkg.id)
+    const { added, failed } = res.data
+    if (added.length > 0) {
+      toast.success(`${added.length} mata kuliah berhasil ditambahkan dari paket "${pkg.name}".`)
+    }
+    if (failed.length > 0) {
+      const failMessages = failed.map((f) => `• ${f.course}: ${f.reason}`).join('\n')
+      toast.warning(`${failed.length} mata kuliah tidak dapat ditambahkan:\n${failMessages}`)
+    }
+    loadPackageModalOpen.value = false
+    await loadDetail()
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || 'Gagal memuat paket KRS.')
+  } finally {
+    loadingPackageId.value = null
   }
 }
 
@@ -154,41 +225,17 @@ onMounted(() => {
           <span>Kembali</span>
         </Button>
 
-        <!-- Student Submit Action -->
-        <Button
-          v-if="enrollment && (enrollment.status === 'draft' || !enrollment.status) && (enrollment.items && enrollment.items.length > 0) && !isKrsExpired && !isKrsNotStarted"
-          variant="primary"
-          size="sm"
+        <!-- Workflow Actions (Student Submit + Admin/Dosen Approve/Revisi/Tolak/Lock) -->
+        <EnrollmentWorkflowActions
+          v-if="enrollment"
+          :enrollment="enrollment"
           :loading="submitting"
-          class="bg-emerald-700 hover:bg-emerald-800 text-white flex items-center gap-1.5 font-semibold text-xs shadow-2xs"
-          @click="handleSubmitKrs"
-        >
-          <Send class="w-3.5 h-3.5" />
-          <span>Ajukan KRS ke Dosen PA</span>
-        </Button>
-
-        <!-- Admin / Dosen Approval Actions -->
-        <template v-if="!isStudent && enrollment && enrollment.status === 'submitted'">
-          <Button
-            variant="outline"
-            size="sm"
-            :loading="submitting"
-            class="border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-semibold"
-            @click="handleRejectKrs"
-          >
-            Minta Revisi
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            :loading="submitting"
-            class="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold flex items-center gap-1 shadow-2xs"
-            @click="handleApproveKrs"
-          >
-            <CheckCircle2 class="w-3.5 h-3.5" />
-            Setujui KRS
-          </Button>
-        </template>
+          @submit-krs="handleSubmitKrs"
+          @approve="handleApproveKrs"
+          @reject="handleRejectKrs"
+          @request-revision="handleRequestRevision"
+          @lock="handleLockKrs"
+        />
       </div>
     </div>
 
@@ -387,7 +434,7 @@ onMounted(() => {
           <div class="flex items-center gap-2 w-full sm:w-auto">
             <!-- Add Course Button if still Draft/Rejected & Within Schedule -->
             <Button
-              v-if="(enrollment.status === 'draft' || !enrollment.status || enrollment.status === 'rejected') && !isKrsExpired && !isKrsNotStarted"
+              v-if="(enrollment.status === 'draft' || !enrollment.status || enrollment.status === 'revision_required') && !isKrsExpired && !isKrsNotStarted"
               variant="primary"
               size="sm"
               class="bg-brand-700 hover:bg-brand-800 text-white text-xs font-semibold gap-1 shadow-2xs"
@@ -395,6 +442,18 @@ onMounted(() => {
             >
               <Plus class="w-3.5 h-3.5" />
               <span>Ambil Mata Kuliah</span>
+            </Button>
+
+            <!-- Load Package Button -->
+            <Button
+              v-if="(enrollment.status === 'draft' || !enrollment.status || enrollment.status === 'revision_required') && !isKrsExpired && !isKrsNotStarted"
+              variant="outline"
+              size="sm"
+              class="border-brand-300 text-brand-700 hover:bg-brand-50 text-xs font-semibold gap-1 shadow-2xs"
+              @click="handleOpenLoadPackage"
+            >
+              <Package class="w-3.5 h-3.5" />
+              <span>Muat Paket KRS</span>
             </Button>
           </div>
         </div>
@@ -471,6 +530,65 @@ onMounted(() => {
         @update:open="selectClassOpen = $event"
         @item-added="loadDetail"
       />
+
+      <!-- Modal Muat Paket KRS -->
+      <div
+        v-if="loadPackageModalOpen"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs"
+        @click.self="loadPackageModalOpen = false"
+      >
+        <div class="w-full max-w-lg bg-white rounded-xl shadow-2xl overflow-hidden">
+          <div class="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <Package class="w-4 h-4 text-brand-600" />
+                Muat Paket KRS
+              </h3>
+              <p class="text-3xs text-slate-500 mt-0.5">Pilih paket untuk langsung mengisi KRS dari template yang telah dibuat admin</p>
+            </div>
+            <button
+              type="button"
+              class="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              @click="loadPackageModalOpen = false"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div class="p-4 max-h-96 overflow-y-auto">
+            <div v-if="loadingPackages" class="py-8 text-center text-slate-400 text-xs">Memuat daftar paket...</div>
+            <div v-else-if="packages.length === 0" class="py-8 text-center text-slate-400 text-xs">
+              Tidak ada paket KRS yang tersedia untuk program studi ini.
+            </div>
+            <div v-else class="space-y-2">
+              <div
+                v-for="pkg in packages"
+                :key="pkg.id"
+                class="border border-slate-200 rounded-lg p-3 hover:border-brand-300 hover:bg-brand-50/30 transition-colors"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div class="flex-1">
+                    <div class="font-bold text-xs text-slate-900">{{ pkg.name }}</div>
+                    <div class="text-3xs text-slate-500 mt-0.5">
+                      Semester Ke-{{ pkg.semester_level }} · {{ pkg.total_credits }} SKS · {{ pkg.items?.length || 0 }} Mata Kuliah
+                    </div>
+                    <div v-if="pkg.description" class="text-3xs text-slate-400 mt-1 italic">{{ pkg.description }}</div>
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    class="bg-brand-700 hover:bg-brand-800 text-white text-2xs font-semibold shrink-0"
+                    :loading="loadingPackageId === pkg.id"
+                    @click="handleLoadPackage(pkg)"
+                  >
+                    Muat
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </PageContainer>
 </template>

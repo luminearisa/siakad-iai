@@ -14,6 +14,8 @@ use Modules\Enrollment\Requests\RejectEnrollmentRequest;
 use Modules\Enrollment\Requests\RequestRevisionRequest;
 use Modules\Enrollment\Resources\EnrollmentResource;
 use Modules\Enrollment\Services\EnrollmentService;
+use Modules\Settings\Services\SettingService;
+use Modules\Student\Enums\StudentStatus;
 use Modules\Student\Models\Student;
 
 class EnrollmentController extends Controller
@@ -21,7 +23,8 @@ class EnrollmentController extends Controller
     use HasApiResponse;
 
     public function __construct(
-        protected EnrollmentService $enrollmentService
+        protected EnrollmentService $enrollmentService,
+        protected SettingService $settingService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -75,7 +78,10 @@ class EnrollmentController extends Controller
 
     public function store(CreateEnrollmentRequest $request): JsonResponse
     {
-        $enrollment = $this->enrollmentService->create($request->validated());
+        $data = array_merge($request->validated(), [
+            '_actor_role' => $request->user()->hasRole('mahasiswa') ? 'mahasiswa' : 'staff',
+        ]);
+        $enrollment = $this->enrollmentService->create($data);
 
         return $this->successResponse(
             data: new EnrollmentResource($enrollment),
@@ -137,7 +143,10 @@ class EnrollmentController extends Controller
             return $this->errorResponse('Unauthorized to create enrollment for other students.', 403);
         }
 
-        $data = array_merge($request->validated(), ['student_id' => $student->id]);
+        $data = array_merge($request->validated(), [
+            'student_id'  => $student->id,
+            '_actor_role' => $request->user()->hasRole('mahasiswa') ? 'mahasiswa' : 'staff',
+        ]);
         $enrollment = $this->enrollmentService->create($data);
 
         return $this->successResponse(
@@ -256,27 +265,48 @@ class EnrollmentController extends Controller
             return $this->errorResponse('Tidak ada semester aktif untuk generate perwalian.', 422);
         }
 
-        $students = Student::all();
-        $count = 0;
+        // Ambil batas SKS default dari pengaturan sistem (bukan hardcode)
+        $defaultMaxCredits = (int) $this->settingService->get('max_sks', 24);
+
+        // Hanya generate untuk mahasiswa yang berstatus AKTIF
+        $students = Student::where('status', StudentStatus::ACTIVE)->get();
+        $created  = 0;
+        $skipped  = 0;
 
         foreach ($students as $student) {
-            StudentEnrollment::firstOrCreate(
-                [
-                    'student_id' => $student->id,
-                    'semester_id' => $semesterId,
-                ],
-                [
-                    'status' => 'draft',
-                    'total_credits' => 0,
-                    'max_credits' => 24,
-                ]
-            );
-            $count++;
+            [$enrollment, $wasCreated] = [
+                StudentEnrollment::firstOrCreate(
+                    [
+                        'student_id'  => $student->id,
+                        'semester_id' => $semesterId,
+                    ],
+                    [
+                        'status'       => 'draft',
+                        'total_credits' => 0,
+                        'max_credits'  => $defaultMaxCredits,
+                    ]
+                ),
+                false,
+            ];
+
+            // firstOrCreate tidak langsung mengembalikan `wasRecentlyCreated`; cek manual
+            if ($enrollment->wasRecentlyCreated) {
+                $created++;
+            } else {
+                $skipped++;
+            }
         }
 
+        $total = $students->count();
+
         return $this->successResponse(
-            data: ['generated_count' => $count],
-            message: "Berhasil generate monitoring perwalian untuk {$count} mahasiswa."
+            data: [
+                'total_active_students' => $total,
+                'created_count'         => $created,
+                'skipped_count'         => $skipped,
+                'default_max_credits'   => $defaultMaxCredits,
+            ],
+            message: "Generate perwalian selesai: {$created} enrollment baru dibuat, {$skipped} sudah ada."
         );
     }
 
@@ -319,6 +349,48 @@ class EnrollmentController extends Controller
                 'semester.academicYear',
             ])),
             message: 'Data perwalian berhasil diperbarui.'
+        );
+    }
+
+    /**
+     * Load a KRS Package template into an enrollment (partial-load strategy).
+     * POST /enrollments/{enrollment}/load-package
+     */
+    public function loadPackage(Request $request, StudentEnrollment $enrollment): JsonResponse
+    {
+        $user = $request->user();
+
+        // Mahasiswa hanya bisa load ke KRS miliknya sendiri
+        if ($user && $user->hasRole('mahasiswa')) {
+            $student = $user->student;
+            if (!$student || $enrollment->student_id !== $student->id) {
+                return $this->errorResponse('Unauthorized: Anda hanya bisa memuat paket KRS ke KRS milik Anda sendiri.', 403);
+            }
+        }
+
+        $validated = $request->validate([
+            'krs_package_id' => ['required', 'integer', 'exists:krs_packages,id'],
+        ]);
+
+        $result = $this->enrollmentService->loadPackage(
+            enrollment: $enrollment,
+            packageId: $validated['krs_package_id']
+        );
+
+        $addedCount  = count($result['added']);
+        $failedCount = count($result['failed']);
+
+        $message = $addedCount > 0
+            ? "Berhasil menambahkan {$addedCount} mata kuliah dari paket KRS."
+            : 'Tidak ada mata kuliah yang dapat ditambahkan dari paket ini.';
+
+        if ($failedCount > 0) {
+            $message .= " {$failedCount} mata kuliah tidak dapat ditambahkan (lihat detail).";
+        }
+
+        return $this->successResponse(
+            data: $result,
+            message: $message,
         );
     }
 }

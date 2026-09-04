@@ -17,7 +17,7 @@ class AddEnrollmentItemAction
         protected EnrollmentValidationService $validator
     ) {}
 
-    public function execute(StudentEnrollment $enrollment, int $classId, ?string $notes = null): StudentEnrollmentItem
+    public function execute(StudentEnrollment $enrollment, int $classId, ?string $notes = null, bool $bypassCurriculum = false): StudentEnrollmentItem
     {
         if (!$enrollment->isEditable()) {
             throw ValidationException::withMessages([
@@ -25,12 +25,15 @@ class AddEnrollmentItemAction
             ]);
         }
 
-        return DB::transaction(function () use ($enrollment, $classId, $notes) {
-            // Lock class row to prevent race condition during capacity checks
-            $class = AcademicClass::where('id', $classId)->lockForUpdate()->firstOrFail();
+        return DB::transaction(function () use ($enrollment, $classId, $notes, $bypassCurriculum) {
+            // Lock class row + eager-load relations needed by validator
+            $class = AcademicClass::with(['course', 'studyProgram'])
+                ->where('id', $classId)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             // Run comprehensive validation rules
-            $this->validator->validateClassAddition($enrollment, $class);
+            $this->validator->validateClassAddition($enrollment, $class, $bypassCurriculum);
 
             $credits = (int) ($class->course?->credits ?? 2);
 

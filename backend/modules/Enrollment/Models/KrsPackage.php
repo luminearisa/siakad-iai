@@ -17,7 +17,7 @@ class KrsPackage extends Model
     protected $fillable = [
         'name',
         'study_program_id',
-        'semester',
+        'semester_level', // Tingkat semester mahasiswa (1–14), bukan FK ke tabel semesters
         'total_credits',
         'description',
     ];
@@ -25,7 +25,7 @@ class KrsPackage extends Model
     protected function casts(): array
     {
         return [
-            'semester' => 'integer',
+            'semester_level' => 'integer',
             'total_credits' => 'integer',
         ];
     }

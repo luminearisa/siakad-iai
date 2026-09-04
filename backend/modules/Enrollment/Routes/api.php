@@ -30,4 +30,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('enrollments/{enrollment}/reject', [EnrollmentController::class, 'reject'])->middleware('permission:enrollments.reject');
     Route::post('enrollments/{enrollment}/request-revision', [EnrollmentController::class, 'requestRevision'])->middleware('permission:enrollments.revise');
     Route::post('enrollments/{enrollment}/lock', [EnrollmentController::class, 'lock'])->middleware('permission:enrollments.lock');
+    Route::post('enrollments/{enrollment}/load-package', [EnrollmentController::class, 'loadPackage']);
 });

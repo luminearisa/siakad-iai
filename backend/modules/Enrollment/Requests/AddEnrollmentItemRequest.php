@@ -28,8 +28,9 @@ class AddEnrollmentItemRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'class_id' => ['required', 'integer', 'exists:academic_classes,id'],
-            'notes' => ['nullable', 'string'],
+            'class_id'          => ['required', 'integer', 'exists:academic_classes,id'],
+            'notes'             => ['nullable', 'string'],
+            'bypass_curriculum' => ['nullable', 'boolean'], // Hanya efektif jika user adalah admin/dosen
         ];
     }
 }

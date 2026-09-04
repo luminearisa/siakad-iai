@@ -33,11 +33,11 @@ class KrsPackageController extends Controller
             $query->where('study_program_id', $request->query('study_program_id'));
         }
 
-        if ($request->filled('semester')) {
-            $query->where('semester', $request->query('semester'));
+        if ($request->filled('semester_level')) {
+            $query->where('semester_level', $request->query('semester_level'));
         }
 
-        $packages = $query->orderBy('study_program_id')->orderBy('semester')->get();
+        $packages = $query->orderBy('study_program_id')->orderBy('semester_level')->get();
 
         return $this->successResponse(
             data: $packages,
@@ -48,12 +48,12 @@ class KrsPackageController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
+            'name'             => ['required', 'string', 'max:255'],
             'study_program_id' => ['required', 'integer', 'exists:study_programs,id'],
-            'semester' => ['required', 'integer', 'min:1', 'max:14'],
-            'description' => ['nullable', 'string'],
-            'course_ids' => ['nullable', 'array'],
-            'course_ids.*' => ['integer', 'exists:courses,id'],
+            'semester_level'   => ['required', 'integer', 'min:1', 'max:14'],
+            'description'      => ['nullable', 'string'],
+            'course_ids'       => ['nullable', 'array'],
+            'course_ids.*'     => ['integer', 'exists:courses,id'],
         ]);
 
         $courseIds = $validated['course_ids'] ?? [];
@@ -61,18 +61,18 @@ class KrsPackageController extends Controller
         $totalCredits = $courses->sum('credits');
 
         $package = KrsPackage::create([
-            'name' => $validated['name'],
+            'name'             => $validated['name'],
             'study_program_id' => $validated['study_program_id'],
-            'semester' => $validated['semester'],
-            'total_credits' => $totalCredits,
-            'description' => $validated['description'] ?? null,
+            'semester_level'   => $validated['semester_level'],
+            'total_credits'    => $totalCredits,
+            'description'      => $validated['description'] ?? null,
         ]);
 
         foreach ($courses as $course) {
             KrsPackageItem::create([
                 'krs_package_id' => $package->id,
-                'course_id' => $course->id,
-                'credits' => $course->credits,
+                'course_id'      => $course->id,
+                'credits'        => $course->credits,
             ]);
         }
 
@@ -94,12 +94,12 @@ class KrsPackageController extends Controller
     public function update(Request $request, KrsPackage $krsPackage): JsonResponse
     {
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
+            'name'             => ['required', 'string', 'max:255'],
             'study_program_id' => ['required', 'integer', 'exists:study_programs,id'],
-            'semester' => ['required', 'integer', 'min:1', 'max:14'],
-            'description' => ['nullable', 'string'],
-            'course_ids' => ['nullable', 'array'],
-            'course_ids.*' => ['integer', 'exists:courses,id'],
+            'semester_level'   => ['required', 'integer', 'min:1', 'max:14'],
+            'description'      => ['nullable', 'string'],
+            'course_ids'       => ['nullable', 'array'],
+            'course_ids.*'     => ['integer', 'exists:courses,id'],
         ]);
 
         $courseIds = $validated['course_ids'] ?? [];
@@ -107,11 +107,11 @@ class KrsPackageController extends Controller
         $totalCredits = $courses->sum('credits');
 
         $krsPackage->update([
-            'name' => $validated['name'],
+            'name'             => $validated['name'],
             'study_program_id' => $validated['study_program_id'],
-            'semester' => $validated['semester'],
-            'total_credits' => $totalCredits,
-            'description' => $validated['description'] ?? null,
+            'semester_level'   => $validated['semester_level'],
+            'total_credits'    => $totalCredits,
+            'description'      => $validated['description'] ?? null,
         ]);
 
         // Sync items
@@ -119,8 +119,8 @@ class KrsPackageController extends Controller
         foreach ($courses as $course) {
             KrsPackageItem::create([
                 'krs_package_id' => $krsPackage->id,
-                'course_id' => $course->id,
-                'credits' => $course->credits,
+                'course_id'      => $course->id,
+                'credits'        => $course->credits,
             ]);
         }
 

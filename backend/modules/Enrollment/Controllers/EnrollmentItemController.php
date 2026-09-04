@@ -45,10 +45,15 @@ class EnrollmentItemController extends Controller
 
     public function store(AddEnrollmentItemRequest $request, StudentEnrollment $enrollment): JsonResponse
     {
+        // bypass_curriculum hanya berlaku untuk admin/dosen, bukan mahasiswa
+        $bypassCurriculum = !$request->user()->hasRole('mahasiswa')
+            && $request->boolean('bypass_curriculum', false);
+
         $item = $this->enrollmentService->addItem(
             enrollment: $enrollment,
             classId: $request->validated('class_id'),
-            notes: $request->validated('notes')
+            notes: $request->validated('notes'),
+            bypassCurriculum: $bypassCurriculum,
         );
 
         return $this->successResponse(

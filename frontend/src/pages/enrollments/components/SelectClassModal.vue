@@ -4,6 +4,7 @@ import { Search, Plus, Check, Clock, User, BookOpen, AlertCircle } from 'lucide-
 import { classService } from '@/services/api/classes'
 import { enrollmentService } from '@/services/api/enrollments'
 import { useToast } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/auth'
 import type { AcademicClass } from '@/types/class'
 import type { StudentEnrollment } from '@/types/enrollment'
 import Modal from '@/components/ui/Modal.vue'
@@ -23,12 +24,18 @@ const emit = defineEmits<{
 }>()
 
 const toast = useToast()
+const authStore = useAuthStore()
 const loading = ref<boolean>(false)
 const addingId = ref<number | null>(null)
 const classes = ref<AcademicClass[]>([])
 const search = ref<string>('')
 const filterSemester = ref<string>('')
 const activeTab = ref<'my_program' | 'all'>('my_program')
+
+// Mahasiswa tidak boleh lintas prodi
+const isStudent = authStore.isStudent
+// Jika mahasiswa, selalu paksa tab my_program
+const canViewAllPrograms = !isStudent
 
 const studyProgramName = computed(() => {
   return props.enrollment.student?.study_program?.name || 'Program Studi'
@@ -86,7 +93,8 @@ watch(
     if (isOpen) {
       search.value = ''
       filterSemester.value = ''
-      activeTab.value = 'my_program'
+      // Paksa tab my_program untuk mahasiswa
+      activeTab.value = isStudent ? 'my_program' : activeTab.value
       loadClasses()
     }
   },
@@ -94,6 +102,11 @@ watch(
 )
 
 watch(activeTab, () => {
+  // Mahasiswa tidak boleh switch ke tab 'all'
+  if (isStudent && activeTab.value === 'all') {
+    activeTab.value = 'my_program'
+    return
+  }
   loadClasses()
 })
 
@@ -150,7 +163,7 @@ async function handleAddClass(cls: AcademicClass) {
         </div>
       </div>
 
-      <!-- Tab Switcher: Prodi Saya vs Semua Prodi -->
+      <!-- Tab Switcher: hanya tampilkan tab lintas prodi untuk admin/dosen -->
       <div class="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl border border-slate-200 text-xs">
         <button
           type="button"
@@ -163,6 +176,7 @@ async function handleAddClass(cls: AcademicClass) {
         </button>
 
         <button
+          v-if="canViewAllPrograms"
           type="button"
           class="flex-1 py-1.5 px-3 rounded-lg font-semibold transition-all flex items-center justify-center gap-1.5"
           :class="activeTab === 'all' ? 'bg-white text-brand-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'"
@@ -170,6 +184,14 @@ async function handleAddClass(cls: AcademicClass) {
         >
           <span>Semua Prodi / Lintas Jurusan</span>
         </button>
+
+        <!-- Info untuk mahasiswa: tidak bisa lintas prodi tanpa izin -->
+        <div
+          v-else
+          class="flex-1 py-1.5 px-3 text-center text-3xs text-slate-400 italic"
+        >
+          Lintas prodi: hubungi Dosen PA
+        </div>
       </div>
 
       <!-- Search & Filter Controls -->

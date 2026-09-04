@@ -65,7 +65,7 @@ class AcademicYearController extends Controller
         if (($data['status'] ?? '') === 'active') {
             AcademicYear::where('id', '!=', $academicYear->id)->update(['status' => 'inactive']);
             // Also ensure active semester matches this academic year if it has semesters
-            $firstSemester = $academicYear->semesters()->first();
+            $firstSemester = $academicYear->semesters()->orderBy('start_date')->first();
             if ($firstSemester) {
                 \Modules\Academic\Models\Semester::query()->update(['status' => 'inactive']);
                 $firstSemester->update(['status' => 'active']);
@@ -85,8 +85,8 @@ class AcademicYearController extends Controller
         AcademicYear::where('id', '!=', $academicYear->id)->update(['status' => 'inactive']);
         $academicYear->update(['status' => 'active']);
 
-        // Sync semester
-        $semester = $academicYear->semesters()->first();
+        // Sync semester — aktifkan semester paling awal berdasarkan start_date
+        $semester = $academicYear->semesters()->orderBy('start_date')->first();
         if ($semester) {
             \Modules\Academic\Models\Semester::query()->update(['status' => 'inactive']);
             $semester->update(['status' => 'active']);

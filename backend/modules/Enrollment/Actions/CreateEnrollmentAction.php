@@ -4,6 +4,8 @@ namespace Modules\Enrollment\Actions;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Modules\Academic\Enums\AcademicStatus;
+use Modules\Academic\Models\Semester;
 use Modules\Audit\Services\AuditService;
 use Modules\Enrollment\Enums\EnrollmentStatus;
 use Modules\Enrollment\Models\StudentEnrollment;
@@ -16,12 +18,25 @@ class CreateEnrollmentAction
     {
         $student = Student::findOrFail($data['student_id']);
 
+        // 1. Mahasiswa harus berstatus aktif
         if ($student->status !== StudentStatus::ACTIVE) {
             throw ValidationException::withMessages([
                 'student_id' => ["Cannot create enrollment for student with status {$student->status->value}. Student must be active."],
             ]);
         }
 
+        // 2. Hanya mahasiswa yang dibatasi ke semester aktif; admin/dosen bisa pilih semester manapun
+        $isStudentActor = ($data['_actor_role'] ?? null) === 'mahasiswa';
+        if ($isStudentActor) {
+            $semester = Semester::findOrFail($data['semester_id']);
+            if ($semester->status !== AcademicStatus::ACTIVE) {
+                throw ValidationException::withMessages([
+                    'semester_id' => ["KRS hanya dapat dibuat untuk semester yang sedang aktif. Semester '{$semester->name}' saat ini tidak aktif."],
+                ]);
+            }
+        }
+
+        // 3. Jika sudah ada enrollment untuk semester ini, kembalikan yang sudah ada
         $existing = StudentEnrollment::where('student_id', $student->id)
             ->where('semester_id', $data['semester_id'])
             ->first();
@@ -32,11 +47,11 @@ class CreateEnrollmentAction
 
         $enrollment = DB::transaction(function () use ($data) {
             return StudentEnrollment::create([
-                'student_id' => $data['student_id'],
+                'student_id'  => $data['student_id'],
                 'semester_id' => $data['semester_id'],
-                'status' => EnrollmentStatus::DRAFT,
+                'status'      => EnrollmentStatus::DRAFT,
                 'total_credits' => 0,
-                'notes' => $data['notes'] ?? null,
+                'notes'       => $data['notes'] ?? null,
             ]);
         });
 
@@ -52,3 +67,4 @@ class CreateEnrollmentAction
         return $enrollment->load(['student.studyProgram', 'semester.academicYear', 'items']);
     }
 }
+

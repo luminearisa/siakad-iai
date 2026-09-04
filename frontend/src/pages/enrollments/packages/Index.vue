@@ -32,7 +32,7 @@ const courseSearch = ref<string>('')
 const form = reactive({
   name: '',
   study_program_id: null as number | null,
-  semester: 1,
+  semester_level: 1,
   description: '',
   course_ids: [] as number[],
 })
@@ -93,7 +93,7 @@ function openCreateDrawer() {
   editingId.value = null
   form.name = ''
   form.study_program_id = studyPrograms.value[0]?.id || null
-  form.semester = 1
+  form.semester_level = 1
   form.description = ''
   form.course_ids = []
   courseSearch.value = ''
@@ -105,7 +105,7 @@ function openEditDrawer(pkg: KrsPackage) {
   editingId.value = pkg.id
   form.name = pkg.name
   form.study_program_id = pkg.study_program_id
-  form.semester = pkg.semester
+  form.semester_level = pkg.semester_level
   form.description = pkg.description || ''
   form.course_ids = (pkg.items || []).map((i) => i.course_id)
   courseSearch.value = ''
@@ -140,7 +140,7 @@ async function handleSave() {
     const payload = {
       name: form.name,
       study_program_id: form.study_program_id,
-      semester: Number(form.semester),
+      semester_level: Number(form.semester_level),
       description: form.description,
       course_ids: form.course_ids,
     }
@@ -258,7 +258,7 @@ onMounted(() => {
               <td class="py-3.5 px-4 text-slate-800">
                 {{ pkg.study_program?.degree ? `${pkg.study_program.degree} - ${pkg.study_program.name}` : (pkg.study_program?.name || '-') }}
               </td>
-              <td class="py-3.5 px-4 text-center font-mono font-semibold text-slate-800">{{ pkg.semester }}</td>
+              <td class="py-3.5 px-4 text-center font-mono font-semibold text-slate-800">Smt. {{ pkg.semester_level }}</td>
               <td class="py-3.5 px-4 text-center font-mono font-bold text-slate-900">{{ pkg.total_credits }} SKS</td>
               <td class="py-3.5 px-4 text-center font-mono font-semibold text-slate-700">
                 {{ pkg.items?.length || 0 }} Matkul
@@ -341,13 +341,14 @@ onMounted(() => {
             </select>
           </div>
 
-          <!-- Semester -->
+          <!-- Semester Ke- (tingkat mahasiswa 1–14) -->
           <div>
             <label class="block font-semibold text-slate-700 mb-1.5">
-              Semester <span class="text-rose-500">*</span>
+              Semester Ke- <span class="text-rose-500">*</span>
+              <span class="ml-1 text-3xs text-slate-400 font-normal">(tingkat semester mahasiswa, misal: 1, 2, 3...)</span>
             </label>
             <Input
-              v-model.number="form.semester"
+              v-model.number="form.semester_level"
               type="number"
               min="1"
               max="14"

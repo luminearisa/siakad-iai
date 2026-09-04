@@ -88,7 +88,7 @@ export interface KrsPackage {
   id: number
   name: string
   study_program_id: number
-  semester: number
+  semester_level: number // Tingkat semester mahasiswa (1–14), bukan FK ke tabel semesters
   total_credits: number
   description?: string | null
   study_program?: {
@@ -105,7 +105,7 @@ export interface KrsPackage {
 export interface CreateKrsPackagePayload {
   name: string
   study_program_id: number
-  semester: number
+  semester_level: number
   description?: string | null
   course_ids?: number[]
 }
@@ -113,7 +113,15 @@ export interface CreateKrsPackagePayload {
 export interface UpdateKrsPackagePayload {
   name: string
   study_program_id: number
-  semester: number
+  semester_level: number
   description?: string | null
   course_ids?: number[]
+}
+
+export interface LoadPackageResult {
+  added: string[]
+  failed: Array<{
+    course: string
+    reason: string
+  }>
 }

@@ -5,6 +5,7 @@ import type {
   StudentEnrollmentItem,
   CreateEnrollmentPayload,
   EnrollmentFilters,
+  LoadPackageResult,
 } from '@/types/enrollment'
 
 export const enrollmentService = {
@@ -71,5 +72,9 @@ export const enrollmentService = {
 
   lock(id: number | string): Promise<ApiResponse<StudentEnrollment>> {
     return apiClient.post<StudentEnrollment>(`/enrollments/${id}/lock`)
+  },
+
+  loadPackage(id: number | string, packageId: number): Promise<ApiResponse<LoadPackageResult>> {
+    return apiClient.post<LoadPackageResult>(`/enrollments/${id}/load-package`, { krs_package_id: packageId })
   },
 }

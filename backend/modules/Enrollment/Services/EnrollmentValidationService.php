@@ -122,16 +122,37 @@ class EnrollmentValidationService
             ]);
         }
 
-        // 8. Curriculum Course Match Rule
+        // 8. Curriculum & Study Program Match Rule
         if (!$bypassCurriculum && $student->study_program_id) {
             $activeCurriculum = Curriculum::where('study_program_id', $student->study_program_id)
                 ->where('status', 'active')
                 ->first();
 
             if ($activeCurriculum) {
+                // Jika ada kurikulum aktif: cek apakah MK ada di kurikulum
                 $curriculumCourseIds = $activeCurriculum->subjects()->pluck('course_id')->toArray();
                 if (!empty($curriculumCourseIds) && !in_array($class->course_id, $curriculumCourseIds, true)) {
-                    // Allowed with note or exception if study program permits elective, otherwise flag or allow override
+                    $courseName = $class->course?->name ?? "Mata Kuliah #{$class->course_id}";
+                    throw ValidationException::withMessages([
+                        'curriculum' => [
+                            "Mata kuliah {$courseName} tidak termasuk dalam kurikulum aktif program studi Anda. "
+                            . "Hubungi Dosen PA atau Admin untuk mendapatkan izin mengambil mata kuliah di luar kurikulum."
+                        ],
+                    ]);
+                }
+            } else {
+                // Fallback jika belum ada kurikulum: cek study_program_id kelas vs prodi mahasiswa
+                // Kelas boleh dari: prodi mahasiswa sendiri, ATAU prodi null (MK umum/universal)
+                $classStudyProgramId = $class->study_program_id ?? null;
+                if ($classStudyProgramId !== null && $classStudyProgramId !== $student->study_program_id) {
+                    $courseName = $class->course?->name ?? "Mata Kuliah #{$class->course_id}";
+                    $classProgram = $class->studyProgram?->name ?? "prodi lain";
+                    throw ValidationException::withMessages([
+                        'study_program' => [
+                            "Mata kuliah {$courseName} adalah milik {$classProgram}, bukan program studi Anda. "
+                            . "Hubungi Dosen PA atau Admin untuk mendapatkan izin mengambil mata kuliah lintas prodi."
+                        ],
+                    ]);
                 }
             }
         }
