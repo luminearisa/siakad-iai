@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Plus, Eye, Edit3, Trash2, CheckCircle, XCircle, Slash, UserPlus } from 'lucide-vue-next'
 import { classService } from '@/services/api/classes'
 import { usePermissions } from '@/composables/usePermissions'
+import { useAuth } from '@/composables/useAuth'
 import { useToast } from '@/composables/useToast'
 import type { AcademicClass, ClassFilters as ClassFiltersType } from '@/types/class'
 import type { ApiMeta } from '@/types/api'
@@ -12,13 +13,19 @@ import DataTable, { type Column } from '@/components/data-display/DataTable.vue'
 import Pagination from '@/components/data-display/Pagination.vue'
 import Button from '@/components/ui/Button.vue'
 import ConfirmModal from '@/components/feedback/ConfirmModal.vue'
+import PersonalScopeNotice from '@/components/feedback/PersonalScopeNotice.vue'
 import ClassFilters from './components/ClassFilters.vue'
 import ClassStatusBadge from './components/ClassStatusBadge.vue'
 import ClassCapacityBadge from './components/ClassCapacityBadge.vue'
 import AddLecturerModal from './components/AddLecturerModal.vue'
 
 const { can } = usePermissions()
+const { isLecturer } = useAuth()
 const toast = useToast()
+
+// A plain lecturer (no class management rights) only ever sees their own classes,
+// because the API scopes the listing to their lecturer profile.
+const showLecturerScope = computed<boolean>(() => isLecturer.value && !can('classes.create'))
 
 const classes = ref<AcademicClass[]>([])
 const loading = ref<boolean>(false)
@@ -198,7 +205,9 @@ onMounted(() => {
   <PageContainer>
     <PageHeader
       title="Kelas Perkuliahan"
-      subtitle="Manajemen rombel kelas perkuliahan semester, penugasan dosen pengampu, dan kuota mahasiswa"
+      :subtitle="showLecturerScope
+        ? 'Daftar kelas perkuliahan yang Anda ampu pada semester berjalan'
+        : 'Manajemen rombel kelas perkuliahan semester, penugasan dosen pengampu, dan kuota mahasiswa'"
       :breadcrumbs="[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Kelas' }]"
     >
       <template #actions>
@@ -212,6 +221,9 @@ onMounted(() => {
     </PageHeader>
 
     <div class="space-y-4">
+      <!-- Lecturer personal scope notice -->
+      <PersonalScopeNotice v-if="showLecturerScope" subject="kelas perkuliahan" />
+
       <!-- Search & Filters -->
       <ClassFilters v-model="filters" @change="loadClasses" />
 

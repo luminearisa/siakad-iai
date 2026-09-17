@@ -35,6 +35,67 @@ class ScheduleTest extends TestCase
         $this->room2 = Room::where('code', 'R-102')->first();
     }
 
+    public function test_lecturer_only_sees_their_own_schedule(): void
+    {
+        $lecturerUser = User::where('email', 'dosen@siakad.ac.id')->first();
+        $lecturer = \Modules\Lecturer\Models\Lecturer::where('user_id', $lecturerUser->id)->firstOrFail();
+        $lecturerToken = $lecturerUser->createToken('dosen_token')->plainTextToken;
+
+        $ownClassIds = AcademicClass::whereHas('lecturers', function ($q) use ($lecturer) {
+            $q->where('lecturers.id', $lecturer->id);
+        })->pluck('id');
+
+        $expectedIds = ClassSchedule::whereIn('class_id', $ownClassIds)->pluck('id')->sort()->values()->all();
+
+        $response = $this->withHeader('Authorization', "Bearer {$lecturerToken}")
+            ->getJson('/api/v1/schedules?per_page=100');
+
+        $response->assertStatus(200);
+
+        $ids = collect($response->json('data'))->pluck('id')->sort()->values()->all();
+
+        $this->assertNotEmpty($ids);
+        $this->assertEquals($expectedIds, $ids);
+        $this->assertLessThan(ClassSchedule::count(), count($ids));
+    }
+
+    public function test_lecturer_cannot_widen_schedule_scope_with_lecturer_id_filter(): void
+    {
+        $lecturerUser = User::where('email', 'dosen@siakad.ac.id')->first();
+        $lecturer = \Modules\Lecturer\Models\Lecturer::where('user_id', $lecturerUser->id)->firstOrFail();
+        $lecturerToken = $lecturerUser->createToken('dosen_token')->plainTextToken;
+
+        $otherLecturerId = \Modules\Class\Models\ClassLecturer::where('lecturer_id', '!=', $lecturer->id)
+            ->value('lecturer_id');
+
+        if (!$otherLecturerId) {
+            $this->markTestSkipped('No other lecturer with classes in the seeded data.');
+        }
+
+        $response = $this->withHeader('Authorization', "Bearer {$lecturerToken}")
+            ->getJson("/api/v1/schedules?per_page=100&lecturer_id={$otherLecturerId}");
+
+        $response->assertStatus(200);
+
+        $ownClassIds = AcademicClass::whereHas('lecturers', function ($q) use ($lecturer) {
+            $q->where('lecturers.id', $lecturer->id);
+        })->pluck('id');
+
+        $returnedClassIds = collect($response->json('data'))->pluck('class_id')->unique();
+
+        $this->assertTrue($returnedClassIds->diff($ownClassIds)->isEmpty());
+    }
+
+    public function test_admin_schedule_list_is_not_scoped(): void
+    {
+        $response = $this->withHeader('Authorization', "Bearer {$this->adminToken}")
+            ->getJson('/api/v1/schedules?per_page=100');
+
+        $response->assertStatus(200);
+
+        $this->assertSame(ClassSchedule::count(), count($response->json('data')));
+    }
+
     public function test_can_list_and_filter_rooms(): void
     {
         $response = $this->withHeader('Authorization', "Bearer {$this->adminToken}")

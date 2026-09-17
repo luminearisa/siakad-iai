@@ -3,6 +3,7 @@ import type { ApiResponse } from '@/types/api'
 import type {
   StudentEnrollment,
   StudentEnrollmentItem,
+  AvailableClass,
   CreateEnrollmentPayload,
   EnrollmentFilters,
   LoadPackageResult,
@@ -40,6 +41,15 @@ export const enrollmentService = {
   // Items
   getItems(enrollmentId: number | string): Promise<ApiResponse<StudentEnrollmentItem[]>> {
     return apiClient.get<StudentEnrollmentItem[]>(`/enrollments/${enrollmentId}/items`)
+  },
+
+  /**
+   * Catalog of classes that can be added to this KRS. Every row carries
+   * `is_eligible` + `eligibility_reasons` so the UI can disable (and explain)
+   * classes that would be rejected on submit.
+   */
+  availableClasses(enrollmentId: number | string): Promise<ApiResponse<AvailableClass[]>> {
+    return apiClient.get<AvailableClass[]>(`/enrollments/${enrollmentId}/available-classes`)
   },
 
   addItem(enrollmentId: number | string, classId: number | string, notes?: string): Promise<ApiResponse<StudentEnrollmentItem>> {

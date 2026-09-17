@@ -14,22 +14,39 @@ import { enrollmentService } from '@/services/api/enrollments'
 import { lecturerService } from '@/services/api/lecturers'
 import { useToast } from '@/composables/useToast'
 import { useAuth } from '@/composables/useAuth'
+import { usePermissions } from '@/composables/usePermissions'
 import type { StudentEnrollment } from '@/types/enrollment'
 import type { Lecturer } from '@/types/lecturer'
 import PageContainer from '@/components/data-display/PageContainer.vue'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
+import Select from '@/components/ui/Select.vue'
 import Pagination from '@/components/data-display/Pagination.vue'
+import PersonalScopeNotice from '@/components/feedback/PersonalScopeNotice.vue'
 
 const router = useRouter()
 const toast = useToast()
-const { isStudent } = useAuth()
+const { isStudent, isLecturer } = useAuth()
+const { can } = usePermissions()
+
+/**
+ * A lecturer (dosen without enrollment management rights) only sees the KRS of
+ * their own advisees, and cannot edit perwalian data. The API enforces the same
+ * rule, this only keeps the UI honest.
+ */
+const readOnlyLecturer = computed<boolean>(() => isLecturer.value && !can('enrollments.lock'))
 
 const loading = ref<boolean>(false)
 const generating = ref<boolean>(false)
 const enrollments = ref<StudentEnrollment[]>([])
 const lecturers = ref<Lecturer[]>([])
+
+// Daftar dosen bisa sangat panjang -> pakai search select.
+const lecturerOptions = computed(() => [
+  { value: null as number | null, label: 'Pilih Dosen Wali' },
+  ...lecturers.value.map((l) => ({ value: l.id as number | null, label: l.full_name })),
+])
 const search = ref<string>('')
 const perPage = ref<number>(10)
 const currentPage = ref<number>(1)
@@ -132,6 +149,11 @@ async function loadEnrollments() {
 }
 
 async function loadLecturers() {
+  // Only staff who may reassign advisors need the lecturer picker.
+  if (readOnlyLecturer.value) {
+    lecturers.value = []
+    return
+  }
   try {
     const res = await lecturerService.list({ per_page: 100 })
     lecturers.value = res.data || []
@@ -141,6 +163,10 @@ async function loadLecturers() {
 }
 
 async function handleGenerate() {
+  if (readOnlyLecturer.value) {
+    toast.error('Anda tidak memiliki hak untuk generate data perwalian')
+    return
+  }
   if (!confirm('Generate data monitoring perwalian untuk seluruh mahasiswa aktif pada semester ini?')) return
 
   generating.value = true
@@ -157,6 +183,10 @@ async function handleGenerate() {
 
 function openEditDrawer(item: StudentEnrollment) {
   if (isStudent.value) return
+  if (readOnlyLecturer.value) {
+    toast.error('Anda tidak memiliki hak untuk mengubah data perwalian')
+    return
+  }
   editingEnrollment.value = item
   drawerForm.lecturer_id = item.academic_advisor_id || null
   drawerForm.max_credits = item.max_credits || 24
@@ -204,14 +234,20 @@ onMounted(() => {
         <nav class="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
           <span class="text-brand-600 font-medium">{{ isStudent ? 'Portal Mahasiswa' : 'Akademik' }}</span>
         </nav>
-        <h1 class="text-xl font-bold text-slate-900">{{ isStudent ? 'Rencana Studi (KRS)' : 'Monitoring Perwalian' }}</h1>
+        <h1 class="text-xl font-bold text-slate-900">
+          {{ isStudent ? 'Rencana Studi (KRS)' : (readOnlyLecturer ? 'Perwalian Mahasiswa Bimbingan Saya' : 'Monitoring Perwalian') }}
+        </h1>
         <p class="text-xs text-slate-500 mt-0.5">
-          {{ isStudent ? 'Daftar Rencana Studi dan Pengambilan Kartu Rencana Studi (KRS) Mahasiswa' : 'Manajemen Perwalian dan Monitoring KRS Mahasiswa' }}
+          {{ isStudent
+            ? 'Daftar Rencana Studi dan Pengambilan Kartu Rencana Studi (KRS) Mahasiswa'
+            : (readOnlyLecturer
+              ? 'Daftar KRS mahasiswa yang Anda bimbing sebagai Dosen Pembimbing Akademik (hanya lihat)'
+              : 'Manajemen Perwalian dan Monitoring KRS Mahasiswa') }}
         </p>
       </div>
 
-      <!-- Action Buttons (Only for Admin & Staff) -->
-      <div v-if="!isStudent" class="flex items-center gap-2 self-start sm:self-auto">
+      <!-- Action Buttons (Admin & Staff only — a lecturer has read-only access) -->
+      <div v-if="!isStudent && !readOnlyLecturer" class="flex items-center gap-2 self-start sm:self-auto">
         <!-- Lainnya Dropdown -->
         <div class="relative">
           <button
@@ -253,6 +289,13 @@ onMounted(() => {
         </Button>
       </div>
     </div>
+
+    <!-- Lecturer read-only notice -->
+    <PersonalScopeNotice
+      v-if="readOnlyLecturer"
+      subject="KRS mahasiswa bimbingan Anda (hanya lihat)"
+      class="mb-4"
+    />
 
     <!-- Main Card -->
     <Card class="border border-slate-200/80 shadow-2xs overflow-hidden">
@@ -342,7 +385,7 @@ onMounted(() => {
         <table class="w-full text-left border-collapse text-xs">
           <thead>
             <tr class="bg-slate-100/80 border-b border-slate-200/80 text-slate-600 font-bold uppercase tracking-wider text-3xs">
-              <th v-if="!isStudent" class="py-3 px-3 w-10 text-center">
+              <th v-if="!isStudent && !readOnlyLecturer" class="py-3 px-3 w-10 text-center">
                 <input
                   type="checkbox"
                   :checked="isAllSelected"
@@ -364,12 +407,12 @@ onMounted(() => {
           </thead>
           <tbody class="divide-y divide-slate-100 text-slate-700">
             <tr v-if="loading" class="hover:bg-transparent">
-              <td :colspan="isStudent ? 10 : 11" class="py-12 text-center text-slate-400">
+              <td :colspan="isStudent || readOnlyLecturer ? 10 : 11" class="py-12 text-center text-slate-400">
                 Memuat data {{ isStudent ? 'Rencana Studi (KRS)' : 'monitoring perwalian' }}...
               </td>
             </tr>
             <tr v-else-if="filteredEnrollments.length === 0" class="hover:bg-transparent">
-              <td :colspan="isStudent ? 10 : 11" class="py-12 text-center text-slate-400">
+              <td :colspan="isStudent || readOnlyLecturer ? 10 : 11" class="py-12 text-center text-slate-400">
                 Belum ada data {{ isStudent ? 'Rencana Studi' : 'monitoring perwalian' }}
               </td>
             </tr>
@@ -378,8 +421,8 @@ onMounted(() => {
               :key="item.id"
               class="hover:bg-slate-50/80 transition-colors"
             >
-              <!-- Checkbox (Only for Admin) -->
-              <td v-if="!isStudent" class="py-3.5 px-3 text-center">
+              <!-- Checkbox (Admin / Staff only) -->
+              <td v-if="!isStudent && !readOnlyLecturer" class="py-3.5 px-3 text-center">
                 <input
                   type="checkbox"
                   :checked="selectedIds.includes(item.id)"
@@ -474,6 +517,7 @@ onMounted(() => {
                     <Eye class="w-3.5 h-3.5" />
                   </button>
                   <button
+                    v-if="!readOnlyLecturer"
                     type="button"
                     class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-md border border-rose-200 transition-colors"
                     title="Edit Monitoring Perwalian"
@@ -529,15 +573,12 @@ onMounted(() => {
             <label class="block font-semibold text-slate-700 mb-1.5">
               Dosen Wali <span class="text-rose-500">*</span>
             </label>
-            <select
+            <Select
               v-model="drawerForm.lecturer_id"
-              class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600 outline-none"
-            >
-              <option :value="null">Pilih Dosen Wali</option>
-              <option v-for="l in lecturers" :key="l.id" :value="l.id">
-                {{ l.full_name }}
-              </option>
-            </select>
+              :options="lecturerOptions"
+              placeholder="Pilih Dosen Wali"
+              search-placeholder="Cari nama dosen..."
+            />
           </div>
 
           <!-- Batas SKS -->

@@ -36,4 +36,16 @@ export const lecturerService = {
   updateQuotas(id: number | string, payload: { academic_advising_quota: number; thesis_supervisor_quota: number; thesis_examiner_quota: number }): Promise<ApiResponse<Lecturer>> {
     return apiClient.put<Lecturer>(`/lecturers/${id}/quotas`, payload)
   },
+
+  createAccount(lecturerId: number | string, payload: { email: string; password: string }): Promise<ApiResponse<Lecturer>> {
+    return apiClient.post<Lecturer>(`/lecturers/${lecturerId}/create-account`, payload)
+  },
+
+  resetPassword(lecturerId: number | string, payload: { password: string }): Promise<ApiResponse<Lecturer>> {
+    return apiClient.post<Lecturer>(`/lecturers/${lecturerId}/reset-password`, payload)
+  },
+
+  toggleAccountStatus(lecturerId: number | string): Promise<ApiResponse<Lecturer>> {
+    return apiClient.patch<Lecturer>(`/lecturers/${lecturerId}/toggle-account-status`)
+  },
 }

@@ -12,6 +12,7 @@ import Alert from '@/components/ui/Alert.vue'
 import ConfirmModal from '@/components/feedback/ConfirmModal.vue'
 import LecturerHeader from './components/LecturerHeader.vue'
 import ChangeLecturerStatusModal from './components/ChangeLecturerStatusModal.vue'
+import LecturerAccountModal from './components/LecturerAccountModal.vue'
 import LecturerOverviewTab from './tabs/LecturerOverviewTab.vue'
 import LecturerAcademicTab from './tabs/LecturerAcademicTab.vue'
 import LecturerEducationTab from './tabs/LecturerEducationTab.vue'
@@ -31,6 +32,10 @@ const activeTab = ref<string>('overview')
 const statusModalOpen = ref<boolean>(false)
 const deleteModalOpen = ref<boolean>(false)
 const deleteLoading = ref<boolean>(false)
+
+// Account Modal
+const accountModalOpen = ref<boolean>(false)
+const accountModalMode = ref<'create' | 'reset-password'>('create')
 
 const tabs = ref<TabItem[]>([
   { id: 'overview', label: 'Biodata & Identitas' },
@@ -61,6 +66,31 @@ function updateTabBadges(data: Lecturer) {
 function handleStatusSuccess(updated: Lecturer) {
   if (lecturer.value) {
     lecturer.value.status = updated.status
+  }
+}
+
+function openCreateAccount() {
+  accountModalMode.value = 'create'
+  accountModalOpen.value = true
+}
+
+function openResetPassword() {
+  accountModalMode.value = 'reset-password'
+  accountModalOpen.value = true
+}
+
+function handleAccountSuccess(updated: Lecturer) {
+  lecturer.value = updated
+}
+
+async function handleToggleAccountStatus() {
+  if (!lecturer.value) return
+  try {
+    const res = await lecturerService.toggleAccountStatus(lecturer.value.id)
+    lecturer.value = res.data
+    toast.success('Status akun dosen berhasil diperbarui.')
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || err.message || 'Gagal mengubah status akun.')
   }
 }
 
@@ -118,6 +148,8 @@ onMounted(() => {
         :lecturer="lecturer"
         @change-status="statusModalOpen = true"
         @delete="deleteModalOpen = true"
+        @create-account="openCreateAccount"
+        @reset-password="openResetPassword"
       />
 
       <!-- Tabs Navigation -->
@@ -129,7 +161,13 @@ onMounted(() => {
 
       <!-- Tab Panels -->
       <div class="pt-1">
-        <LecturerOverviewTab v-if="activeTab === 'overview'" :lecturer="lecturer" />
+        <LecturerOverviewTab
+          v-if="activeTab === 'overview'"
+          :lecturer="lecturer"
+          @create-account="openCreateAccount"
+          @reset-password="openResetPassword"
+          @toggle-account-status="handleToggleAccountStatus"
+        />
         <LecturerAcademicTab v-else-if="activeTab === 'academic'" :lecturer="lecturer" />
         <LecturerEducationTab v-else-if="activeTab === 'education'" :lecturer="lecturer" />
         <LecturerExpertiseTab v-else-if="activeTab === 'expertise'" :lecturer="lecturer" />
@@ -137,6 +175,15 @@ onMounted(() => {
     </div>
 
     <!-- Modals -->
+    <LecturerAccountModal
+      v-if="lecturer"
+      :open="accountModalOpen"
+      :lecturer="lecturer"
+      :mode="accountModalMode"
+      @update:open="accountModalOpen = $event"
+      @success="handleAccountSuccess"
+    />
+
     <ChangeLecturerStatusModal
       v-if="lecturer"
       :open="statusModalOpen"

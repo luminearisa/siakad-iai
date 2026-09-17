@@ -5,6 +5,7 @@ namespace Modules\Class\Controllers;
 use App\Http\Controllers\Controller;
 use App\Support\QueryFilter;
 use App\Support\Traits\HasApiResponse;
+use App\Support\Traits\ScopesToOwnLecturer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Class\Enums\ClassStatus;
@@ -18,7 +19,7 @@ use Modules\Class\Services\ClassService;
 
 class ClassController extends Controller
 {
-    use HasApiResponse;
+    use HasApiResponse, ScopesToOwnLecturer;
 
     public function __construct(
         protected ClassService $classService
@@ -28,17 +29,22 @@ class ClassController extends Controller
     {
         $query = AcademicClass::with(['course', 'semester.academicYear', 'studyProgram', 'lecturers']);
 
+        // A lecturer who cannot manage classes only ever sees the classes they
+        // actually teach (their own teaching schedule), regardless of filters.
+        $scopedToOwnClasses = $this->scopeToOwnLecturer($request, $query, 'classes.create');
+
+        if (!$scopedToOwnClasses && $request->filled('lecturer_id')) {
+            $query->whereHas('lecturers', function ($q) use ($request) {
+                $q->where('lecturers.id', $request->query('lecturer_id'));
+            });
+        }
+
         if ($request->filled('academic_year_id')) {
             $query->whereHas('semester', function ($q) use ($request) {
                 $q->where('academic_year_id', $request->query('academic_year_id'));
             });
         }
 
-        if ($request->filled('lecturer_id')) {
-            $query->whereHas('lecturers', function ($q) use ($request) {
-                $q->where('lecturers.id', $request->query('lecturer_id'));
-            });
-        }
         if ($request->filled('study_program_id')) {
             $spId = $request->query('study_program_id');
             if ($request->boolean('include_general', true)) {

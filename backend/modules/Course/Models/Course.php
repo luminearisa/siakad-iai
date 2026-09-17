@@ -113,4 +113,17 @@ class Course extends Model
     {
         return $this->hasMany(CourseQuestionnaireTopic::class)->orderBy('order_number');
     }
+
+    /**
+     * Get survey templates assigned to this course.
+     */
+    public function surveyTemplates(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            CourseSurveyTemplate::class,
+            'course_survey_assignments',
+            'course_id',
+            'survey_template_id'
+        )->withTimestamps();
+    }
 }

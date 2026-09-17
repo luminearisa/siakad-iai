@@ -90,7 +90,10 @@ class AcademicIntegrationTest extends TestCase
             'admission_year' => 2026,
         ]);
 
-        // 4. Create Course & Curriculum
+        // 4. Create Course & attach it to the study program's ACTIVE curriculum.
+        // A study program may only have one active curriculum (see
+        // ActivateCurriculumAction), so the E2E course must be added to the
+        // existing one instead of activating a competing curriculum.
         $course = Course::create([
             'code' => 'E2E-101',
             'name' => 'Konsep Dasar SIAKAD E2E',
@@ -100,15 +103,15 @@ class AcademicIntegrationTest extends TestCase
             'type' => CourseType::THEORY,
         ]);
 
-        $curriculum = Curriculum::create([
-            'study_program_id' => $prodi->id,
-            'code' => 'KUR-E2E-2026',
-            'name' => 'Kurikulum E2E',
-            'status' => CurriculumStatus::ACTIVE,
-        ]);
+        $curriculum = Curriculum::where('study_program_id', $prodi->id)
+            ->where('status', CurriculumStatus::ACTIVE)
+            ->firstOrFail();
 
-        $curSem = $curriculum->semesters()->create(['semester_number' => 1, 'name' => 'Semester 1']);
-        $curSem->subjects()->create(['course_id' => $course->id, 'is_mandatory' => true]);
+        $curSem = $curriculum->semesters()->firstOrCreate(
+            ['semester_number' => 1],
+            ['name' => 'Semester 1']
+        );
+        $curSem->subjects()->firstOrCreate(['course_id' => $course->id], ['is_mandatory' => true]);
 
         // 5. Create Academic Class & Assign Lecturer
         $class = AcademicClass::create([

@@ -82,6 +82,17 @@ All responses follow the Centralized API Response Standard.
 * `GET|POST /api/v1/lecturers`
 * `GET|PUT|DELETE /api/v1/lecturers/{id}`
 * `PATCH /api/v1/lecturers/{id}/status`
+* `PUT /api/v1/lecturers/{id}/quotas`
+
+### Portal Account Management (mirrors the student module)
+* `POST /api/v1/students/{id}/create-account` (`{"email": "...", "password": "..."}`) — requires `students.update`
+* `POST /api/v1/students/{id}/reset-password` (`{"password": "..."}`) — requires `students.update`
+* `PATCH /api/v1/students/{id}/toggle-account-status` — requires `students.update`
+* `POST /api/v1/lecturers/{id}/create-account` (`{"email": "...", "password": "..."}`) — requires `lecturers.update`; assigns role `dosen`
+* `POST /api/v1/lecturers/{id}/reset-password` (`{"password": "..."}`) — requires `lecturers.update`; provisions the account when the lecturer has none yet (default email `{lecturer_number}@dosen.ac.id`)
+* `PATCH /api/v1/lecturers/{id}/toggle-account-status` — requires `lecturers.update`
+
+> Note: creating a student/lecturer **with an email** auto-provisions a portal account (default password `password123`). Records created without an email land in the "Belum Punya Akun" state and the account is created explicitly from the detail page.
 
 ---
 
@@ -179,13 +190,19 @@ All responses follow the Centralized API Response Standard.
 
 ### 7.2. Add / Remove Class in KRS
 * **GET `/api/v1/enrollments/{id}/items`**
+* **GET `/api/v1/enrollments/{id}/available-classes`**: eligibility-aware class catalog for this KRS.
+  Each row is a class payload plus `is_eligible`, `eligibility_reasons[]` and `eligibility_reason`.
+  Students only receive classes from their own study program (or university-wide classes with
+  `study_program_id = null`); staff receive every open class of the semester and may pass
+  `?bypass_curriculum=1`. Eligible classes are returned first, so the UI can disable the rest with
+  the reason instead of letting the student submit a request that is guaranteed to fail.
 * **POST `/api/v1/enrollments/{id}/items`**:
 ```json
 {
   "class_id": 1
 }
 ```
-*(Automatically validates Student status, Class capacity, duplicate course check, prerequisite rules, schedule overlaps, and SKS credit limit).*
+*(Automatically validates Student status, Class capacity, duplicate course check, prerequisite rules, schedule overlaps, curriculum membership, and SKS credit limit. All failing rules are returned at once.)*
 * **DELETE `/api/v1/enrollments/{id}/items/{itemId}`**
 
 ### 7.3. KRS Workflow Actions

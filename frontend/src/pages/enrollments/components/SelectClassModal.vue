@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { Search, Plus, Check, Clock, User, BookOpen, AlertCircle } from 'lucide-vue-next'
-import { classService } from '@/services/api/classes'
+import { Search, Plus, Check, Clock, User, BookOpen, AlertCircle, ShieldAlert } from 'lucide-vue-next'
 import { enrollmentService } from '@/services/api/enrollments'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
-import type { AcademicClass } from '@/types/class'
+import type { AvailableClass } from '@/types/enrollment'
 import type { StudentEnrollment } from '@/types/enrollment'
 import Modal from '@/components/ui/Modal.vue'
 import Button from '@/components/ui/Button.vue'
@@ -27,9 +26,8 @@ const toast = useToast()
 const authStore = useAuthStore()
 const loading = ref<boolean>(false)
 const addingId = ref<number | null>(null)
-const classes = ref<AcademicClass[]>([])
+const classes = ref<AvailableClass[]>([])
 const search = ref<string>('')
-const filterSemester = ref<string>('')
 const activeTab = ref<'my_program' | 'all'>('my_program')
 
 // Mahasiswa tidak boleh lintas prodi
@@ -41,15 +39,48 @@ const studyProgramName = computed(() => {
   return props.enrollment.student?.study_program?.name || 'Program Studi'
 })
 
+const studentStudyProgramId = computed(() => props.enrollment.student?.study_program_id ?? null)
+
 const enrolledClassIds = computed(() => {
   return (props.enrollment.items || []).map((item) => item.class_id || item.academic_class?.id)
 })
 
+/** A class is selectable when the backend flagged it eligible (defaults to true for legacy payloads). */
+function isEligible(cls: AvailableClass): boolean {
+  return cls.is_eligible !== false
+}
+
+function eligibilityReason(cls: AvailableClass): string {
+  return cls.eligibility_reason || cls.eligibility_reasons?.[0] || 'Tidak memenuhi syarat pengambilan mata kuliah.'
+}
+
+const dayLabels: Record<string, string> = {
+  monday: 'Senin',
+  tuesday: 'Selasa',
+  wednesday: 'Rabu',
+  thursday: 'Kamis',
+  friday: 'Jumat',
+  saturday: 'Sabtu',
+  sunday: 'Minggu',
+}
+
+function scheduleLabel(cls: AvailableClass): string {
+  const schedule = cls.schedules?.[0]
+  if (!schedule) return 'Jadwal menyusul'
+  const day = dayLabels[String(schedule.day_of_week || '').toLowerCase()] || schedule.day_of_week || ''
+  const start = schedule.start_time ? String(schedule.start_time).slice(0, 5) : ''
+  const end = schedule.end_time ? String(schedule.end_time).slice(0, 5) : ''
+  return `${day} ${start} - ${end}`.trim()
+}
+
 const filteredClasses = computed(() => {
   let list = classes.value
 
-  if (filterSemester.value) {
-    list = list.filter((c) => String(c.semester_id) === filterSemester.value || c.semester?.name?.includes(filterSemester.value))
+  // Tab "Prodi Saya" — general (university-wide) classes have no study program.
+  if (activeTab.value === 'my_program' && studentStudyProgramId.value) {
+    list = list.filter(
+      (c) => !c.study_program_id || c.study_program_id === studentStudyProgramId.value
+    )
   }
 
   if (!search.value.trim()) return list
@@ -68,19 +99,12 @@ const filteredClasses = computed(() => {
 async function loadClasses() {
   loading.value = true
   try {
-    const params: any = {
-      semester_id: props.enrollment.semester_id,
-      status: 'open',
-    }
-
-    if (activeTab.value === 'my_program' && props.enrollment.student?.study_program_id) {
-      params.study_program_id = props.enrollment.student.study_program_id
-      params.include_general = 1
-    }
-
-    const res = await classService.list(params)
+    // The endpoint returns the catalog already annotated with eligibility, so the
+    // UI never offers a class the API would reject with a 422 on submit.
+    const res = await enrollmentService.availableClasses(props.enrollment.id)
     classes.value = res.data || []
   } catch (err: any) {
+    classes.value = []
     toast.error(err.response?.data?.message || 'Gagal memuat daftar kelas perkuliahan')
   } finally {
     loading.value = false
@@ -92,7 +116,6 @@ watch(
   (isOpen) => {
     if (isOpen) {
       search.value = ''
-      filterSemester.value = ''
       // Paksa tab my_program untuk mahasiswa
       activeTab.value = isStudent ? 'my_program' : activeTab.value
       loadClasses()
@@ -105,12 +128,15 @@ watch(activeTab, () => {
   // Mahasiswa tidak boleh switch ke tab 'all'
   if (isStudent && activeTab.value === 'all') {
     activeTab.value = 'my_program'
-    return
   }
-  loadClasses()
 })
 
-async function handleAddClass(cls: AcademicClass) {
+async function handleAddClass(cls: AvailableClass) {
+  if (!isEligible(cls)) {
+    toast.error(eligibilityReason(cls))
+    return
+  }
+
   const currentCredits = props.enrollment.total_credits || 0
   const maxCredits = props.enrollment.max_credits || 24
   const courseCredits = cls.course?.credits || 2
@@ -125,6 +151,8 @@ async function handleAddClass(cls: AcademicClass) {
     await enrollmentService.addItem(props.enrollment.id, cls.id)
     toast.success(`Kelas ${cls.course?.name || cls.name} (${cls.section}) berhasil ditambahkan ke KRS!`)
     emit('item-added')
+    // Refresh so the newly added class is flagged as already taken.
+    await loadClasses()
   } catch (err: any) {
     const errorData = err.response?.data
     if (errorData?.errors) {
@@ -133,6 +161,8 @@ async function handleAddClass(cls: AcademicClass) {
     } else {
       toast.error(errorData?.message || err.message || 'Gagal menambahkan mata kuliah ke KRS')
     }
+    // Eligibility may have changed (quota filled, schedule added, ...).
+    loadClasses()
   } finally {
     addingId.value = null
   }
@@ -205,15 +235,9 @@ async function handleAddClass(cls: AcademicClass) {
           />
         </div>
 
-        <select
-          v-model="filterSemester"
-          class="w-full sm:w-40 px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-brand-500/20 outline-none"
-        >
-          <option value="">Semua Semester</option>
-          <option v-for="s in 8" :key="s" :value="String(s)">
-            Semester {{ s }}
-          </option>
-        </select>
+        <span class="text-3xs text-slate-500 whitespace-nowrap">
+          {{ filteredClasses.filter(isEligible).length }} dari {{ filteredClasses.length }} kelas dapat diambil
+        </span>
       </div>
 
       <!-- Classes List -->
@@ -268,8 +292,17 @@ async function handleAddClass(cls: AcademicClass) {
               <span>•</span>
               <span class="inline-flex items-center gap-1">
                 <Clock class="w-3 h-3 text-slate-400" />
-                {{ cls.schedules?.[0]?.day ? `${cls.schedules[0].day}, ${cls.schedules[0].start_time} - ${cls.schedules[0].end_time}` : 'Jadwal menyusul' }}
+                {{ scheduleLabel(cls) }}
               </span>
+            </div>
+
+            <!-- Reason why the class cannot be taken -->
+            <div
+              v-if="!isEligible(cls) && !enrolledClassIds.includes(cls.id)"
+              class="flex items-start gap-1 text-2xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-2 py-1"
+            >
+              <ShieldAlert class="w-3 h-3 shrink-0 mt-0.5" />
+              <span>{{ eligibilityReason(cls) }}</span>
             </div>
           </div>
 
@@ -294,6 +327,18 @@ async function handleAddClass(cls: AcademicClass) {
               class="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 text-slate-400 border border-slate-200 rounded-lg text-2xs font-medium cursor-not-allowed"
             >
               Kelas Belum Dibuka
+            </button>
+
+            <!-- Disabled when the class fails a KRS rule (curriculum, quota, schedule, ...) -->
+            <button
+              v-else-if="!isEligible(cls)"
+              type="button"
+              disabled
+              :title="eligibilityReason(cls)"
+              class="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-2xs font-semibold cursor-not-allowed"
+            >
+              <ShieldAlert class="w-3.5 h-3.5" />
+              Tidak Memenuhi Syarat
             </button>
 
             <!-- Add Button -->

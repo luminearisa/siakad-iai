@@ -58,6 +58,66 @@ class ClassTest extends TestCase
             ->assertJson(['success' => true]);
     }
 
+    public function test_lecturer_only_sees_classes_they_teach(): void
+    {
+        $lecturerUser = User::where('email', 'dosen@siakad.ac.id')->first();
+        $lecturer = Lecturer::where('user_id', $lecturerUser->id)->firstOrFail();
+        $lecturerToken = $lecturerUser->createToken('dosen_token')->plainTextToken;
+
+        $expectedCodes = AcademicClass::whereHas('lecturers', function ($q) use ($lecturer) {
+            $q->where('lecturers.id', $lecturer->id);
+        })->pluck('code')->sort()->values()->all();
+
+        $response = $this->withHeader('Authorization', "Bearer {$lecturerToken}")
+            ->getJson('/api/v1/classes?per_page=100');
+
+        $response->assertStatus(200);
+
+        $codes = collect($response->json('data'))->pluck('code')->sort()->values()->all();
+
+        $this->assertNotEmpty($codes);
+        $this->assertEquals($expectedCodes, $codes);
+        $this->assertLessThan(AcademicClass::count(), count($codes));
+    }
+
+    public function test_lecturer_cannot_widen_scope_with_lecturer_id_filter(): void
+    {
+        $lecturerUser = User::where('email', 'dosen@siakad.ac.id')->first();
+        $lecturer = Lecturer::where('user_id', $lecturerUser->id)->firstOrFail();
+        $lecturerToken = $lecturerUser->createToken('dosen_token')->plainTextToken;
+
+        $otherLecturerId = \Modules\Class\Models\ClassLecturer::where('lecturer_id', '!=', $lecturer->id)
+            ->value('lecturer_id');
+
+        if (!$otherLecturerId) {
+            $this->markTestSkipped('No other lecturer with classes in the seeded data.');
+        }
+
+        $response = $this->withHeader('Authorization', "Bearer {$lecturerToken}")
+            ->getJson("/api/v1/classes?per_page=100&lecturer_id={$otherLecturerId}");
+
+        $response->assertStatus(200);
+
+        $codes = collect($response->json('data'))->pluck('code');
+
+        // The forced scope wins: every returned class must still be taught by the caller.
+        $ownCodes = AcademicClass::whereHas('lecturers', function ($q) use ($lecturer) {
+            $q->where('lecturers.id', $lecturer->id);
+        })->pluck('code');
+
+        $this->assertTrue($codes->diff($ownCodes)->isEmpty());
+    }
+
+    public function test_admin_still_sees_every_class(): void
+    {
+        $response = $this->withHeader('Authorization', "Bearer {$this->adminToken}")
+            ->getJson('/api/v1/classes?per_page=100');
+
+        $response->assertStatus(200);
+
+        $this->assertSame(AcademicClass::count(), count($response->json('data')));
+    }
+
     public function test_can_create_class_with_lecturers(): void
     {
         $payload = [
@@ -92,7 +152,6 @@ class ClassTest extends TestCase
         $this->assertDatabaseHas('academic_classes', ['code' => 'TEST-CLASS-B']);
         $this->assertDatabaseHas('class_lecturers', ['lecturer_id' => $this->lecturer->id]);
     }
-
     public function test_rejects_duplicate_class_section_in_same_semester(): void
     {
         $payload = [

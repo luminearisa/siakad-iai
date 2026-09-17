@@ -15,7 +15,7 @@ import CourseHeader from './components/CourseHeader.vue'
 import CoursePrerequisiteList from './components/CoursePrerequisiteList.vue'
 import AddPrerequisiteModal from './components/AddPrerequisiteModal.vue'
 import CourseTypeBadge from './components/CourseTypeBadge.vue'
-import CourseQuestionnaireTab from './components/CourseQuestionnaireTab.vue'
+import CourseSurveyTab from './components/CourseSurveyTab.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -35,7 +35,7 @@ const deleteLoading = ref<boolean>(false)
 const tabs = ref<TabItem[]>([
   { id: 'overview', label: 'Informasi Umum' },
   { id: 'prerequisites', label: 'Prasyarat & Relasi', badge: 0 },
-  { id: 'questionnaires', label: 'Kelola Kuisioner' },
+  { id: 'questionnaires', label: 'Template Survey (EDOM)' },
 ])
 
 async function loadCourse() {
@@ -201,9 +201,9 @@ onMounted(() => {
         />
       </div>
 
-      <!-- Tab 3: Questionnaires (Kelola Kuisioner) -->
+      <!-- Tab 3: Questionnaires / Survey (Template Survey EDOM) -->
       <div v-else-if="activeTab === 'questionnaires'">
-        <CourseQuestionnaireTab :course="course" />
+        <CourseSurveyTab :course="course" />
       </div>
     </div>
 

@@ -6,18 +6,29 @@ import { enrollmentService } from '@/services/api/enrollments'
 import { krsPackageService } from '@/services/api/krsPackages'
 import { useToast } from '@/composables/useToast'
 import { useAuth } from '@/composables/useAuth'
+import { usePermissions } from '@/composables/usePermissions'
 import type { StudentEnrollment } from '@/types/enrollment'
 import type { KrsPackage } from '@/types/enrollment'
 import PageContainer from '@/components/data-display/PageContainer.vue'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
+import PersonalScopeNotice from '@/components/feedback/PersonalScopeNotice.vue'
 import SelectClassModal from './components/SelectClassModal.vue'
 import EnrollmentWorkflowActions from './components/EnrollmentWorkflowActions.vue'
 
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-const { isStudent } = useAuth()
+const { isStudent, isLecturer } = useAuth()
+const { can } = usePermissions()
+
+/**
+ * Only roles that may change the KRS see the add/remove/load-package controls.
+ * Students have `enrollments.update`; a plain lecturer does not, so their view
+ * of a KRS is strictly read-only (the API enforces the same rule).
+ */
+const canEditKrs = computed<boolean>(() => can('enrollments.update'))
+const isReadOnlyView = computed<boolean>(() => isLecturer.value && !canEditKrs.value)
 
 const enrollmentId = route.params.id as string
 const enrollment = ref<StudentEnrollment | null>(null)
@@ -244,6 +255,11 @@ onMounted(() => {
     </div>
 
     <div v-else-if="enrollment" class="space-y-5">
+      <PersonalScopeNotice
+        v-if="isReadOnlyView"
+        subject="KRS mahasiswa bimbingan Anda (hanya lihat, tidak dapat diubah)"
+      />
+
       <!-- Student Profile Card -->
       <Card class="p-6 border border-slate-200/80 shadow-2xs bg-white rounded-xl">
         <div class="flex flex-col md:flex-row items-start md:items-center gap-6">
@@ -400,8 +416,11 @@ onMounted(() => {
         <div class="flex items-center gap-2.5">
           <Info class="w-4 h-4 text-brand-700 shrink-0" />
           <div>
-            <span>
+            <span v-if="canEditKrs">
               Periode Pengisian KRS Aktif. Silakan klik tombol <strong>"+ Ambil Mata Kuliah"</strong> untuk memilih kelas perkuliahan.
+            </span>
+            <span v-else>
+              Periode Pengisian KRS masih berjalan. KRS ini belum diajukan oleh mahasiswa.
             </span>
             <div v-if="enrollment.semester?.krs_end_date" class="mt-0.5 text-3xs text-brand-700 font-semibold flex items-center gap-1">
               <Calendar class="w-3 h-3 text-brand-600" />
@@ -411,6 +430,7 @@ onMounted(() => {
         </div>
 
         <Button
+          v-if="canEditKrs"
           variant="primary"
           size="sm"
           class="bg-brand-700 hover:bg-brand-800 text-white font-semibold text-2xs gap-1 self-start sm:self-auto shrink-0 shadow-2xs"
@@ -434,7 +454,7 @@ onMounted(() => {
           <div class="flex items-center gap-2 w-full sm:w-auto">
             <!-- Add Course Button if still Draft/Rejected & Within Schedule -->
             <Button
-              v-if="(enrollment.status === 'draft' || !enrollment.status || enrollment.status === 'revision_required') && !isKrsExpired && !isKrsNotStarted"
+              v-if="canEditKrs && (enrollment.status === 'draft' || !enrollment.status || enrollment.status === 'revision_required') && !isKrsExpired && !isKrsNotStarted"
               variant="primary"
               size="sm"
               class="bg-brand-700 hover:bg-brand-800 text-white text-xs font-semibold gap-1 shadow-2xs"
@@ -446,7 +466,7 @@ onMounted(() => {
 
             <!-- Load Package Button -->
             <Button
-              v-if="(enrollment.status === 'draft' || !enrollment.status || enrollment.status === 'revision_required') && !isKrsExpired && !isKrsNotStarted"
+              v-if="canEditKrs && (enrollment.status === 'draft' || !enrollment.status || enrollment.status === 'revision_required') && !isKrsExpired && !isKrsNotStarted"
               variant="outline"
               size="sm"
               class="border-brand-300 text-brand-700 hover:bg-brand-50 text-xs font-semibold gap-1 shadow-2xs"
@@ -480,6 +500,7 @@ onMounted(() => {
                   <p class="text-3xs text-slate-400">
                     <span v-if="isKrsExpired" class="text-amber-600 font-medium">Pengisian KRS telah ditutup karena telah melewati batas waktu (deadline).</span>
                     <span v-else-if="isKrsNotStarted" class="text-blue-600 font-medium">Periode pengisian KRS belum dibuka.</span>
+                    <span v-else-if="!canEditKrs">Mahasiswa belum mengambil mata kuliah apa pun pada periode ini.</span>
                     <span v-else>Klik tombol <strong>"+ Ambil Mata Kuliah"</strong> untuk memilih kelas perkuliahan yang tersedia.</span>
                   </p>
                 </td>
@@ -505,7 +526,7 @@ onMounted(() => {
                 </td>
                 <td class="py-3.5 px-4 text-center">
                   <button
-                    v-if="(enrollment.status === 'draft' || !enrollment.status || enrollment.status === 'rejected') && !isKrsExpired && !isKrsNotStarted"
+                    v-if="canEditKrs && (enrollment.status === 'draft' || !enrollment.status || enrollment.status === 'rejected') && !isKrsExpired && !isKrsNotStarted"
                     type="button"
                     class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-md border border-rose-200 transition-colors"
                     title="Hapus / Batalkan Mata Kuliah ini"
@@ -513,6 +534,7 @@ onMounted(() => {
                   >
                     <Trash2 class="w-3.5 h-3.5" />
                   </button>
+                  <span v-else-if="!canEditKrs" class="text-3xs text-slate-400">Hanya lihat</span>
                   <span v-else-if="isKrsExpired" class="text-3xs text-amber-600 font-medium">Lewat Deadline</span>
                   <span v-else class="text-3xs text-slate-400">Terkunci</span>
                 </td>
@@ -524,7 +546,7 @@ onMounted(() => {
 
       <!-- Modal Ambil Kelas Perkuliahan -->
       <SelectClassModal
-        v-if="enrollment"
+        v-if="enrollment && canEditKrs"
         :open="selectClassOpen"
         :enrollment="enrollment"
         @update:open="selectClassOpen = $event"

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { classService } from '@/services/api/classes'
+import { enrollmentService } from '@/services/api/enrollments'
 import type { AcademicClass } from '@/types/class'
-import type { StudentEnrollment, StudentEnrollmentItem } from '@/types/enrollment'
+import type { AvailableClass, StudentEnrollment, StudentEnrollmentItem } from '@/types/enrollment'
 import Card from '@/components/ui/Card.vue'
 import EnrollmentSummary from '../components/EnrollmentSummary.vue'
 import EnrollmentItemList from '../components/EnrollmentItemList.vue'
@@ -29,7 +29,7 @@ const emit = defineEmits<{
   (e: 'dismiss-validation'): void
 }>()
 
-const availableClasses = ref<AcademicClass[]>([])
+const availableClasses = ref<AvailableClass[]>([])
 const classLoading = ref<boolean>(false)
 const classFilters = ref<{ search?: string; day_of_week?: string }>({
   search: '',
@@ -64,10 +64,8 @@ async function loadAvailableClasses() {
   if (!props.enrollment.semester_id) return
   classLoading.value = true
   try {
-    const res = await classService.list({
-      semester_id: props.enrollment.semester_id,
-      per_page: 100,
-    })
+    // Eligibility-aware catalog: ineligible classes are shown but not selectable.
+    const res = await enrollmentService.availableClasses(props.enrollment.id)
     availableClasses.value = res.data || []
   } catch {
     availableClasses.value = []

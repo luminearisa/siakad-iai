@@ -14,22 +14,39 @@ import { advisingService } from '@/services/api/advising'
 import { lecturerService } from '@/services/api/lecturers'
 import { academicService } from '@/services/api/academic'
 import { useToast } from '@/composables/useToast'
+import { usePermissions } from '@/composables/usePermissions'
+import { useAuth } from '@/composables/useAuth'
 import type { Lecturer } from '@/types/lecturer'
 import type { StudyProgram } from '@/types/academic'
 import PageContainer from '@/components/data-display/PageContainer.vue'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
+import Select from '@/components/ui/Select.vue'
 import Pagination from '@/components/data-display/Pagination.vue'
+import PersonalScopeNotice from '@/components/feedback/PersonalScopeNotice.vue'
 
 const router = useRouter()
 const toast = useToast()
+const { can } = usePermissions()
+const { isLecturer } = useAuth()
+
+// A plain lecturer (no advising management rights) only ever sees the students
+// they advise, because the API scopes the listing to their lecturer profile.
+const showLecturerScope = computed<boolean>(() => isLecturer.value && !can('advising.assign'))
+const columnCount = computed<number>(() => (showLecturerScope.value ? 6 : 7))
 
 const loading = ref<boolean>(false)
 const generating = ref<boolean>(false)
 const saving = ref<boolean>(false)
 const students = ref<any[]>([])
 const lecturers = ref<Lecturer[]>([])
+
+// Daftar dosen bisa sangat panjang -> pakai search select.
+const lecturerOptions = computed(() => [
+  { value: null as number | null, label: 'Pilih Dosen Wali' },
+  ...lecturers.value.map((l) => ({ value: l.id as number | null, label: l.full_name })),
+])
 const studyPrograms = ref<StudyProgram[]>([])
 
 const search = ref<string>('')
@@ -79,6 +96,16 @@ const filteredStudents = computed(() => {
 
 const totalPages = computed(() => {
   return Math.max(1, Math.ceil(filteredStudents.value.length / perPage.value))
+})
+
+// Derived from the loaded rows so the filter keeps working for any cohort,
+// instead of the previously hardcoded 2025/2026/2027 options.
+const availableYears = computed<string[]>(() => {
+  const years = new Set<string>()
+  students.value.forEach((s) => {
+    if (s.admission_year) years.add(String(s.admission_year))
+  })
+  return Array.from(years).sort((a, b) => b.localeCompare(a))
 })
 
 const paginatedStudents = computed(() => {
@@ -138,14 +165,20 @@ function formatStatus(status: string) {
 async function loadData() {
   loading.value = true
   try {
-    const [distRes, lecRes, prodiRes] = await Promise.all([
+    const [distRes, prodiRes] = await Promise.all([
       advisingService.getDistribution(),
-      lecturerService.list({ per_page: 100 }),
       academicService.getStudyPrograms(),
     ])
     students.value = distRes.data || []
-    lecturers.value = lecRes.data || []
     studyPrograms.value = prodiRes.data || []
+
+    // Only staff who may assign advisors need the lecturer picker.
+    if (showLecturerScope.value) {
+      lecturers.value = []
+    } else {
+      const lecRes = await lecturerService.list({ per_page: 100 })
+      lecturers.value = lecRes.data || []
+    }
   } catch (err: any) {
     toast.error(err.response?.data?.message || 'Gagal memuat data distribusi pembimbing')
   } finally {
@@ -154,6 +187,10 @@ async function loadData() {
 }
 
 async function handleGenerate() {
+  if (showLecturerScope.value) {
+    toast.error('Anda tidak memiliki hak untuk generate distribusi dosen wali')
+    return
+  }
   if (!confirm('Otomatis distribusikan dosen wali untuk mahasiswa aktif yang belum memiliki pembimbing?')) return
 
   generating.value = true
@@ -169,6 +206,10 @@ async function handleGenerate() {
 }
 
 function openAssignBulk() {
+  if (showLecturerScope.value) {
+    toast.error('Anda tidak memiliki hak untuk menetapkan dosen wali')
+    return
+  }
   if (selectedIds.value.length === 0) {
     toast.error('Pilih minimal satu mahasiswa dari tabel terlebih dahulu')
     return
@@ -181,6 +222,10 @@ function openAssignBulk() {
 }
 
 function openEditSingle(student: any) {
+  if (showLecturerScope.value) {
+    toast.error('Anda tidak memiliki hak untuk mengubah dosen wali')
+    return
+  }
   isBulk.value = false
   targetStudent.value = student
   drawerForm.lecturer_id = student.academic_advisor_id || null
@@ -234,12 +279,18 @@ onMounted(() => {
         <nav class="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
           <span class="text-brand-600 font-semibold tracking-wider uppercase">AKADEMIK</span>
         </nav>
-        <h1 class="text-xl font-bold text-slate-900">Distribusi Pembimbing Akademik</h1>
-        <p class="text-xs text-slate-500 mt-0.5">Manajemen Distribusi Pembimbing Akademik</p>
+        <h1 class="text-xl font-bold text-slate-900">
+          {{ showLecturerScope ? 'Mahasiswa Bimbingan Saya' : 'Distribusi Pembimbing Akademik' }}
+        </h1>
+        <p class="text-xs text-slate-500 mt-0.5">
+          {{ showLecturerScope
+            ? 'Daftar mahasiswa yang Anda bimbing sebagai Dosen Pembimbing Akademik'
+            : 'Manajemen Distribusi Pembimbing Akademik' }}
+        </p>
       </div>
 
       <!-- Action Buttons -->
-      <div class="flex items-center gap-2 self-start sm:self-auto">
+      <div v-if="!showLecturerScope" class="flex items-center gap-2 self-start sm:self-auto">
         <!-- + Dosen Wali Button (Dark Red/Brown) -->
         <Button
           variant="primary"
@@ -264,6 +315,13 @@ onMounted(() => {
         </Button>
       </div>
     </div>
+
+    <!-- Lecturer scope notice -->
+    <PersonalScopeNotice
+      v-if="showLecturerScope"
+      subject="mahasiswa bimbingan akademik"
+      class="mb-4"
+    />
 
     <!-- Main Card & Table -->
     <Card class="border border-slate-200/80 shadow-2xs overflow-hidden">
@@ -319,9 +377,9 @@ onMounted(() => {
             class="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-brand-500/20 outline-none"
           >
             <option value="">Semua Angkatan</option>
-            <option value="2025">2025</option>
-            <option value="2026">2026</option>
-            <option value="2027">2027</option>
+            <option v-for="year in availableYears" :key="year" :value="year">
+              {{ year }}
+            </option>
           </select>
         </div>
 
@@ -367,7 +425,7 @@ onMounted(() => {
         <table class="w-full text-left border-collapse text-xs">
           <thead>
             <tr class="bg-slate-100/80 border-b border-slate-200/80 text-slate-600 font-bold uppercase tracking-wider text-3xs">
-              <th class="py-3 px-3 w-10 text-center">
+              <th v-if="!showLecturerScope" class="py-3 px-3 w-10 text-center">
                 <input
                   type="checkbox"
                   :checked="isAllSelected"
@@ -385,13 +443,15 @@ onMounted(() => {
           </thead>
           <tbody class="divide-y divide-slate-100 text-slate-700">
             <tr v-if="loading" class="hover:bg-transparent">
-              <td colspan="7" class="py-12 text-center text-slate-400">
+              <td :colspan="columnCount" class="py-12 text-center text-slate-400">
                 Memuat data distribusi pembimbing akademik...
               </td>
             </tr>
             <tr v-else-if="filteredStudents.length === 0" class="hover:bg-transparent">
-              <td colspan="7" class="py-12 text-center text-slate-400">
-                Belum ada data distribusi pembimbing
+              <td :colspan="columnCount" class="py-12 text-center text-slate-400">
+                {{ showLecturerScope
+                  ? 'Belum ada mahasiswa yang Anda bimbing sebagai Dosen Pembimbing Akademik'
+                  : 'Belum ada data distribusi pembimbing' }}
               </td>
             </tr>
             <tr
@@ -400,7 +460,7 @@ onMounted(() => {
               class="hover:bg-slate-50/80 transition-colors"
             >
               <!-- Checkbox -->
-              <td class="py-3.5 px-3 text-center">
+              <td v-if="!showLecturerScope" class="py-3.5 px-3 text-center">
                 <input
                   type="checkbox"
                   :checked="selectedIds.includes(item.id)"
@@ -443,6 +503,7 @@ onMounted(() => {
               <td class="py-3.5 px-4">
                 <div class="flex items-center justify-center gap-1.5">
                   <button
+                    v-if="!showLecturerScope"
                     type="button"
                     class="p-1.5 text-rose-600 hover:bg-rose-50 rounded-md border border-rose-200 transition-colors"
                     title="Edit Dosen Wali"
@@ -508,15 +569,12 @@ onMounted(() => {
             <label class="block font-semibold text-slate-700 mb-1.5">
               Dosen Pembimbing Akademik / Wali <span class="text-rose-500">*</span>
             </label>
-            <select
+            <Select
               v-model="drawerForm.lecturer_id"
-              class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600 outline-none"
-            >
-              <option :value="null">Pilih Dosen Wali</option>
-              <option v-for="l in lecturers" :key="l.id" :value="l.id">
-                {{ l.full_name }}
-              </option>
-            </select>
+              :options="lecturerOptions"
+              placeholder="Pilih Dosen Wali"
+              search-placeholder="Cari nama dosen..."
+            />
           </div>
 
           <!-- Catatan -->

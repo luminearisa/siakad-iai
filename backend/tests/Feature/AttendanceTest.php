@@ -8,6 +8,8 @@ use Modules\Attendance\Enums\SessionStatus;
 use Modules\Attendance\Models\StudentAttendance;
 use Modules\Attendance\Models\TeachingSession;
 use Modules\Class\Models\AcademicClass;
+use Modules\Enrollment\Models\StudentEnrollment;
+use Modules\Enrollment\Models\StudentEnrollmentItem;
 use Modules\Identity\Models\User;
 use Modules\Lecturer\Models\Lecturer;
 use Modules\Student\Models\Student;

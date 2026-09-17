@@ -5,27 +5,70 @@ namespace Modules\Enrollment\Controllers;
 use App\Http\Controllers\Controller;
 use App\Support\QueryFilter;
 use App\Support\Traits\HasApiResponse;
+use App\Support\Traits\ScopesToOwnLecturer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\Class\Enums\ClassStatus;
+use Modules\Class\Models\AcademicClass;
 use Modules\Enrollment\Models\StudentEnrollment;
 use Modules\Enrollment\Requests\ApproveEnrollmentRequest;
 use Modules\Enrollment\Requests\CreateEnrollmentRequest;
 use Modules\Enrollment\Requests\RejectEnrollmentRequest;
 use Modules\Enrollment\Requests\RequestRevisionRequest;
+use Modules\Enrollment\Resources\AvailableClassResource;
 use Modules\Enrollment\Resources\EnrollmentResource;
 use Modules\Enrollment\Services\EnrollmentService;
+use Modules\Enrollment\Services\EnrollmentValidationService;
 use Modules\Settings\Services\SettingService;
 use Modules\Student\Enums\StudentStatus;
 use Modules\Student\Models\Student;
 
 class EnrollmentController extends Controller
 {
-    use HasApiResponse;
+    use HasApiResponse, ScopesToOwnLecturer;
 
     public function __construct(
         protected EnrollmentService $enrollmentService,
         protected SettingService $settingService,
+        protected EnrollmentValidationService $validationService,
     ) {}
+
+    /**
+     * A plain lecturer (role dosen without enrollment management rights) may only
+     * see the KRS of the students they actively advise, and must never be able to
+     * edit perwalian data. Staff roles keep full visibility and full access.
+     *
+     * `enrollments.lock` is used as the "staff" marker: it is granted to
+     * admin_akademik/super_admin but not to dosen.
+     *
+     * @return array{0: bool, 1: int|null} [isLecturerOnly, ownLecturerId]
+     */
+    protected function lecturerScope(Request $request): array
+    {
+        return $this->resolveOwnLecturerScope($request, 'enrollments.lock');
+    }
+
+    /**
+     * Deny a plain lecturer access to an enrollment that is not one of their advisees.
+     *
+     * @return JsonResponse|null  A 403 response when access must be denied, otherwise null.
+     */
+    protected function denyUnlessOwnAdvisee(Request $request, StudentEnrollment $enrollment): ?JsonResponse
+    {
+        [$isLecturerOnly, $ownLecturerId] = $this->lecturerScope($request);
+
+        if (!$isLecturerOnly) {
+            return null;
+        }
+
+        $advisorLecturerId = $enrollment->student?->academicAdvisor?->lecturer_id;
+
+        if (!$ownLecturerId || $advisorLecturerId !== $ownLecturerId) {
+            return $this->errorResponse('Unauthorized to access this enrollment.', 403);
+        }
+
+        return null;
+    }
 
     public function index(Request $request): JsonResponse
     {
@@ -47,6 +90,18 @@ class EnrollmentController extends Controller
                 return $this->errorResponse('Student profile not found for user.', 404);
             }
             $query->where('student_id', $student->id);
+        }
+
+        // A plain lecturer only sees the KRS of the students they advise.
+        [$isLecturerOnly, $ownLecturerId] = $this->lecturerScope($request);
+        if ($isLecturerOnly) {
+            if ($ownLecturerId) {
+                $query->whereHas('student.academicAdvisor', function ($q) use ($ownLecturerId) {
+                    $q->where('lecturer_id', $ownLecturerId);
+                });
+            } else {
+                $query->whereRaw('1 = 0');
+            }
         }
 
         if ($request->filled('search')) {
@@ -104,6 +159,10 @@ class EnrollmentController extends Controller
             }
         }
 
+        if ($denied = $this->denyUnlessOwnAdvisee($request, $enrollment)) {
+            return $denied;
+        }
+
         return $this->successResponse(
             data: new EnrollmentResource($enrollment->load([
                 'student.studyProgram.faculty',
@@ -115,6 +174,63 @@ class EnrollmentController extends Controller
                 'items.academicClass.schedules.room',
             ])),
             message: 'Enrollment retrieved successfully.'
+        );
+    }
+
+    /**
+     * List the classes that can be picked for this KRS, each annotated with its
+     * eligibility so the catalog never offers a class that will be rejected.
+     *
+     * Students only see classes from their own study program (plus university
+     * wide classes); staff see every open class of the semester.
+     */
+    public function availableClasses(Request $request, StudentEnrollment $enrollment): JsonResponse
+    {
+        $user = $request->user();
+        $isStudent = (bool) $user?->hasRole('mahasiswa');
+
+        if ($isStudent) {
+            $ownStudent = $user->student;
+            if (!$ownStudent || $enrollment->student_id !== $ownStudent->id) {
+                return $this->errorResponse('Unauthorized to view available classes for this enrollment.', 403);
+            }
+        }
+
+        $enrollment->loadMissing('student');
+        $student = $enrollment->student;
+
+        // Staff may opt in to skip the curriculum rule, exactly like the add-item endpoint.
+        $bypassCurriculum = !$isStudent && $request->boolean('bypass_curriculum', false);
+
+        $query = AcademicClass::query()
+            ->with(['course', 'lecturers', 'schedules.room', 'studyProgram'])
+            ->where('semester_id', $enrollment->semester_id)
+            ->where('status', ClassStatus::OPEN);
+
+        if ($isStudent && $student?->study_program_id) {
+            $query->where(function ($q) use ($student) {
+                $q->whereNull('study_program_id')
+                  ->orWhere('study_program_id', $student->study_program_id);
+            });
+        }
+
+        $rows = $query->orderBy('code')->get()->map(function (AcademicClass $class) use ($enrollment, $bypassCurriculum) {
+            return [
+                'class' => $class,
+                'errors' => $this->validationService->checkClassAddition($enrollment, $class, $bypassCurriculum),
+            ];
+        });
+
+        // Eligible classes first so the catalog leads with what can actually be taken.
+        $rows = $rows->sortByDesc(fn (array $row) => empty($row['errors']))->values();
+
+        $items = $rows->map(
+            fn (array $row) => (new AvailableClassResource($row['class']))->withEligibility($row['errors'])
+        );
+
+        return $this->successResponse(
+            data: $items,
+            message: 'Available classes retrieved successfully.'
         );
     }
 
@@ -181,6 +297,11 @@ class EnrollmentController extends Controller
             $enrollment = StudentEnrollment::findOrFail($request->route('enrollment'));
         }
 
+        // A lecturer may only approve the KRS of their own advisees.
+        if ($denied = $this->denyUnlessOwnAdvisee($request, $enrollment)) {
+            return $denied;
+        }
+
         $approved = $this->enrollmentService->approve(
             enrollment: $enrollment,
             approverUserId: $request->user()->id,
@@ -199,6 +320,11 @@ class EnrollmentController extends Controller
             $enrollment = StudentEnrollment::findOrFail($request->route('enrollment'));
         }
 
+        // A lecturer may only reject the KRS of their own advisees.
+        if ($denied = $this->denyUnlessOwnAdvisee($request, $enrollment)) {
+            return $denied;
+        }
+
         $rejected = $this->enrollmentService->reject(
             enrollment: $enrollment,
             userId: $request->user()->id,
@@ -215,6 +341,11 @@ class EnrollmentController extends Controller
     {
         if (!$enrollment->exists && $request->route('enrollment')) {
             $enrollment = StudentEnrollment::findOrFail($request->route('enrollment'));
+        }
+
+        // A lecturer may only request revision on their own advisees' KRS.
+        if ($denied = $this->denyUnlessOwnAdvisee($request, $enrollment)) {
+            return $denied;
         }
 
         $revised = $this->enrollmentService->requestRevision(
@@ -252,6 +383,11 @@ class EnrollmentController extends Controller
         $user = $request->user();
         if ($user && $user->hasRole('mahasiswa')) {
             return $this->errorResponse('Mahasiswa tidak memiliki hak akses untuk generate perwalian.', 403);
+        }
+
+        // Bulk perwalian generation is an academic-office operation, not a lecturer one.
+        if ($this->lecturerScope($request)[0]) {
+            return $this->errorResponse('Dosen tidak diizinkan menjalankan generate perwalian.', 403);
         }
 
         $semesterId = $request->input('semester_id');
@@ -315,6 +451,11 @@ class EnrollmentController extends Controller
         $user = $request->user();
         if ($user && $user->hasRole('mahasiswa')) {
             return $this->errorResponse('Mahasiswa tidak diizinkan mengubah dosen pembimbing atau kuota SKS.', 403);
+        }
+
+        // Assigning advisors and raising SKS limits is an academic-office operation.
+        if ($this->lecturerScope($request)[0]) {
+            return $this->errorResponse('Dosen tidak diizinkan mengubah dosen pembimbing atau kuota SKS.', 403);
         }
 
         $validated = $request->validate([

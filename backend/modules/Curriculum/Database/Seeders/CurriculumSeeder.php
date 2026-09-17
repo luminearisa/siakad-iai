@@ -53,22 +53,27 @@ class CurriculumSeeder extends Seeder
         $mku102 = Course::where('code', 'MKU-102')->first();
         $mku103 = Course::where('code', 'MKU-103')->first();
         $mku104 = Course::where('code', 'MKU-104')->first();
+        $mku105 = Course::where('code', 'MKU-105')->first();
+        $mku106 = Course::where('code', 'MKU-106')->first();
         $pai201 = Course::where('code', 'PAI-201')->first();
         $pai202 = Course::where('code', 'PAI-202')->first();
         $pai203 = Course::where('code', 'PAI-203')->first();
         $pai301 = Course::where('code', 'PAI-301')->first();
+        $pai302 = Course::where('code', 'PAI-302')->first();
 
         // Semester 1 subjects
         if ($sem1) {
             if ($mku101) $sem1->subjects()->firstOrCreate(['course_id' => $mku101->id], ['is_mandatory' => true]);
             if ($mku102) $sem1->subjects()->firstOrCreate(['course_id' => $mku102->id], ['is_mandatory' => true]);
             if ($mku103) $sem1->subjects()->firstOrCreate(['course_id' => $mku103->id], ['is_mandatory' => true]);
+            if ($mku105) $sem1->subjects()->firstOrCreate(['course_id' => $mku105->id], ['is_mandatory' => true]);
             if ($pai201) $sem1->subjects()->firstOrCreate(['course_id' => $pai201->id], ['is_mandatory' => true]);
         }
 
         // Semester 2 subjects
         if ($sem2) {
             if ($mku104) $sem2->subjects()->firstOrCreate(['course_id' => $mku104->id], ['is_mandatory' => true]);
+            if ($mku106) $sem2->subjects()->firstOrCreate(['course_id' => $mku106->id], ['is_mandatory' => true]);
             if ($pai202) $sem2->subjects()->firstOrCreate(['course_id' => $pai202->id], ['is_mandatory' => true]);
         }
 
@@ -80,6 +85,7 @@ class CurriculumSeeder extends Seeder
         // Semester 5 subjects
         if ($sem5) {
             if ($pai301) $sem5->subjects()->firstOrCreate(['course_id' => $pai301->id], ['is_mandatory' => true]);
+            if ($pai302) $sem5->subjects()->firstOrCreate(['course_id' => $pai302->id], ['is_mandatory' => true]);
         }
     }
 }

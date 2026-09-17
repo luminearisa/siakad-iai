@@ -1,6 +1,7 @@
 import { apiClient } from './client'
 import type { ApiResponse, QueryParams } from '@/types/api'
 import type {
+  AttendanceSheetRow,
   BatchAttendancePayload,
   ClassAttendanceRecap,
   SelfCheckInPayload,
@@ -48,12 +49,13 @@ export const attendanceService = {
   },
 
   // Student Attendances per Session
-  getSessionStudents(sessionId: number): Promise<ApiResponse<StudentAttendance[]>> {
-    return apiClient.get<StudentAttendance[]>(`/attendance/sessions/${sessionId}/students`)
+  // Returns the class roster merged with saved records (see AttendanceSheetRow).
+  getSessionStudents(sessionId: number): Promise<ApiResponse<AttendanceSheetRow[]>> {
+    return apiClient.get<AttendanceSheetRow[]>(`/attendance/sessions/${sessionId}/students`)
   },
 
-  recordBatch(sessionId: number, payload: BatchAttendancePayload): Promise<ApiResponse<StudentAttendance[]>> {
-    return apiClient.post<StudentAttendance[]>(`/attendance/sessions/${sessionId}/record-batch`, payload)
+  recordBatch(sessionId: number, payload: BatchAttendancePayload): Promise<ApiResponse<AttendanceSheetRow[]>> {
+    return apiClient.post<AttendanceSheetRow[]>(`/attendance/sessions/${sessionId}/record-batch`, payload)
   },
 
   updateStudentAttendance(

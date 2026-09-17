@@ -5,6 +5,7 @@ namespace Modules\Advising\Controllers;
 use App\Http\Controllers\Controller;
 use App\Support\QueryFilter;
 use App\Support\Traits\HasApiResponse;
+use App\Support\Traits\ScopesToOwnLecturer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Advising\Models\AdvisingSession;
@@ -15,7 +16,7 @@ use Modules\Advising\Services\AdvisingService;
 
 class AdvisingSessionController extends Controller
 {
-    use HasApiResponse;
+    use HasApiResponse, ScopesToOwnLecturer;
 
     public function __construct(
         protected AdvisingService $advisingService
@@ -33,6 +34,9 @@ class AdvisingSessionController extends Controller
             }
             $query->where('student_id', $student->id);
         }
+
+        // A plain lecturer only sees the consultations they logged.
+        $this->scopeToOwnLecturer($request, $query, 'advising.assign', null, 'lecturer_id');
 
         if ($request->filled('search')) {
             $search = $request->query('search');
@@ -68,7 +72,23 @@ class AdvisingSessionController extends Controller
 
     public function store(CreateAdvisingSessionRequest $request): JsonResponse
     {
-        $session = $this->advisingService->createSession($request->validated());
+        $data = $request->validated();
+
+        // A plain lecturer may only log consultations under their own name.
+        [$isLecturerOnly, $ownLecturerId] = $this->resolveOwnLecturerScope($request, 'advising.assign');
+        if ($isLecturerOnly) {
+            if (!$ownLecturerId) {
+                return $this->errorResponse('Lecturer profile not found.', 404);
+            }
+
+            if ((int) $data['lecturer_id'] !== $ownLecturerId) {
+                return $this->errorResponse('Unauthorized to log an advising session for another lecturer.', 403);
+            }
+
+            $data['lecturer_id'] = $ownLecturerId;
+        }
+
+        $session = $this->advisingService->createSession($data);
 
         return $this->successResponse(
             data: new AdvisingSessionResource($session),
@@ -77,8 +97,12 @@ class AdvisingSessionController extends Controller
         );
     }
 
-    public function show(AdvisingSession $session): JsonResponse
+    public function show(Request $request, AdvisingSession $session): JsonResponse
     {
+        if (!$this->lecturerMayAccessOwnedRecord($request, $session->lecturer_id, 'advising.assign')) {
+            return $this->errorResponse('Unauthorized to view this advising session.', 403);
+        }
+
         return $this->successResponse(
             data: new AdvisingSessionResource($session->load(['student.studyProgram', 'lecturer', 'enrollment.semester'])),
             message: 'Advising session retrieved successfully.'
@@ -87,6 +111,10 @@ class AdvisingSessionController extends Controller
 
     public function update(UpdateAdvisingSessionRequest $request, AdvisingSession $session): JsonResponse
     {
+        if (!$this->lecturerMayAccessOwnedRecord($request, $session->lecturer_id, 'advising.assign')) {
+            return $this->errorResponse('Unauthorized to update this advising session.', 403);
+        }
+
         $updated = $this->advisingService->updateSession($session, $request->validated());
 
         return $this->successResponse(
@@ -95,8 +123,12 @@ class AdvisingSessionController extends Controller
         );
     }
 
-    public function destroy(AdvisingSession $session): JsonResponse
+    public function destroy(Request $request, AdvisingSession $session): JsonResponse
     {
+        if (!$this->lecturerMayAccessOwnedRecord($request, $session->lecturer_id, 'advising.assign')) {
+            return $this->errorResponse('Unauthorized to delete this advising session.', 403);
+        }
+
         $session->delete();
 
         return $this->successResponse(

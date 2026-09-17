@@ -58,6 +58,17 @@ export interface CreateEnrollmentPayload {
   notes?: string | null
 }
 
+/**
+ * A class offered in the KRS catalog, annotated by the backend with whether the
+ * student is actually allowed to take it (curriculum, capacity, schedule,
+ * prerequisites, SKS limit, ...).
+ */
+export interface AvailableClass extends AcademicClass {
+  is_eligible?: boolean
+  eligibility_reasons?: string[]
+  eligibility_reason?: string | null
+}
+
 export interface AddEnrollmentItemPayload {
   class_id: number
   notes?: string | null

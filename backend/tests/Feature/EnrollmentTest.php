@@ -7,6 +7,8 @@ use Modules\Academic\Models\Semester;
 use Modules\Class\Enums\ClassStatus;
 use Modules\Class\Models\AcademicClass;
 use Modules\Course\Models\Course;
+use Modules\Curriculum\Enums\CurriculumStatus;
+use Modules\Curriculum\Models\Curriculum;
 use Modules\Enrollment\Enums\EnrollmentStatus;
 use Modules\Enrollment\Models\StudentEnrollment;
 use Modules\Identity\Models\User;
@@ -42,6 +44,27 @@ class EnrollmentTest extends TestCase
         $this->semester = Semester::first();
     }
 
+    /**
+     * Attach a course to the student's active curriculum so the KRS curriculum
+     * rule accepts it (a study program may only have one active curriculum).
+     */
+    protected function attachCourseToActiveCurriculum(Course $course): void
+    {
+        $curriculum = Curriculum::where('study_program_id', $this->student->study_program_id)
+            ->where('status', CurriculumStatus::ACTIVE)
+            ->firstOrFail();
+
+        $semester = $curriculum->semesters()->firstOrCreate(
+            ['semester_number' => 1],
+            ['name' => 'Semester 1']
+        );
+
+        $semester->subjects()->firstOrCreate(
+            ['course_id' => $course->id],
+            ['is_mandatory' => true]
+        );
+    }
+
     public function test_student_can_create_krs_draft(): void
     {
         // Delete any existing enrollment from seeder for clean test
@@ -69,8 +92,11 @@ class EnrollmentTest extends TestCase
         $enrollment = StudentEnrollment::where('student_id', $this->student->id)->first();
         $enrollment->update(['status' => EnrollmentStatus::DRAFT]);
 
-        $class = AcademicClass::where('code', 'HKI201-A')->first();
+        // MKU105-A is part of the student's active curriculum and is not enrolled yet.
+        $class = AcademicClass::where('code', 'MKU105-A')->first();
         $initialCapacity = $class->enrolled_count;
+        $initialCredits = $enrollment->fresh()->total_credits;
+        $courseCredits = $class->course->credits;
 
         // Add class
         $response = $this->withHeader('Authorization', "Bearer {$this->studentToken}")
@@ -82,6 +108,7 @@ class EnrollmentTest extends TestCase
             ->assertJson(['success' => true]);
 
         $this->assertEquals($initialCapacity + 1, $class->fresh()->enrolled_count);
+        $this->assertEquals($initialCredits + $courseCredits, $enrollment->fresh()->total_credits);
 
         $item = $enrollment->items()->where('class_id', $class->id)->first();
         $this->assertNotNull($item);
@@ -92,6 +119,7 @@ class EnrollmentTest extends TestCase
 
         $delResponse->assertStatus(200);
         $this->assertEquals($initialCapacity, $class->fresh()->enrolled_count);
+        $this->assertEquals($initialCredits, $enrollment->fresh()->total_credits);
     }
 
     public function test_rejects_adding_duplicate_course_to_krs(): void
@@ -116,7 +144,8 @@ class EnrollmentTest extends TestCase
         $enrollment = StudentEnrollment::where('student_id', $this->student->id)->first();
         $enrollment->update(['status' => EnrollmentStatus::DRAFT]);
 
-        $class = AcademicClass::where('code', 'HKI201-A')->first();
+        // Use a class that passes every other rule so the capacity rule is isolated.
+        $class = AcademicClass::where('code', 'MKU103-A')->first();
         $class->update(['capacity' => 10, 'enrolled_count' => 10]);
 
         $response = $this->withHeader('Authorization', "Bearer {$this->studentToken}")
@@ -125,7 +154,8 @@ class EnrollmentTest extends TestCase
             ]);
 
         $response->assertStatus(422)
-            ->assertJsonStructure(['errors' => ['class_id']]);
+            ->assertJsonStructure(['errors' => ['class_id']])
+            ->assertJsonFragment(['errors' => ['class_id' => ["Kapasitas kelas {$class->code} sudah penuh (10/10 mahasiswa)."]]]);
     }
 
     public function test_rejects_schedule_conflict_for_student(): void
@@ -142,6 +172,10 @@ class EnrollmentTest extends TestCase
             'theory_credits' => 2,
             'practical_credits' => 0,
         ]);
+
+        // The course must live in the student's active curriculum, otherwise the
+        // curriculum rule would fail before the schedule rule is evaluated.
+        $this->attachCourseToActiveCurriculum($newCourse);
 
         $newClass = AcademicClass::create([
             'semester_id' => $this->semester->id,
@@ -166,7 +200,8 @@ class EnrollmentTest extends TestCase
             ]);
 
         $response->assertStatus(422)
-            ->assertJsonStructure(['errors' => ['class_id']]);
+            ->assertJsonStructure(['errors' => ['class_id']])
+            ->assertJsonPath('errors.class_id.0', fn (string $message) => str_contains($message, 'Schedule conflict'));
     }
 
     public function test_krs_workflow_submit_approve_and_lock(): void
@@ -204,7 +239,7 @@ class EnrollmentTest extends TestCase
         $enrollment = StudentEnrollment::where('student_id', $this->student->id)->first();
         $enrollment->update(['status' => EnrollmentStatus::LOCKED]);
 
-        $class = AcademicClass::where('code', 'HKI201-A')->first();
+        $class = AcademicClass::where('code', 'MKU103-A')->first();
 
         $response = $this->withHeader('Authorization', "Bearer {$this->studentToken}")
             ->postJson("/api/v1/enrollments/{$enrollment->id}/items", [
@@ -213,5 +248,47 @@ class EnrollmentTest extends TestCase
 
         $response->assertStatus(422)
             ->assertJsonStructure(['errors' => ['enrollment']]);
+    }
+
+    public function test_available_classes_endpoint_flags_eligibility(): void
+    {
+        $enrollment = StudentEnrollment::where('student_id', $this->student->id)->first();
+        $enrollment->update(['status' => EnrollmentStatus::DRAFT]);
+
+        $response = $this->withHeader('Authorization', "Bearer {$this->studentToken}")
+            ->getJson("/api/v1/enrollments/{$enrollment->id}/available-classes");
+
+        $response->assertStatus(200)
+            ->assertJson(['success' => true])
+            ->assertJsonStructure([
+                'data' => [
+                    '*' => ['id', 'code', 'course', 'is_eligible', 'eligibility_reasons'],
+                ],
+            ]);
+
+        $rows = collect($response->json('data'))->keyBy('code');
+
+        // A class from the student's own curriculum is selectable.
+        $this->assertTrue($rows['MKU105-A']['is_eligible']);
+        $this->assertEmpty($rows['MKU105-A']['eligibility_reasons']);
+
+        // A class whose course is already in the KRS is reported as such.
+        $this->assertFalse($rows['PAI201-A']['is_eligible']);
+        $this->assertStringContainsString('sudah terdaftar di dalam KRS', $rows['PAI201-A']['eligibility_reason']);
+
+        // Classes from other study programs are not offered to the student at all.
+        $this->assertArrayNotHasKey('HKI201-A', $rows->all());
+        $this->assertArrayNotHasKey('ES201-A', $rows->all());
+    }
+
+    public function test_available_classes_endpoint_hides_other_students_enrollment(): void
+    {
+        $otherStudent = Student::where('student_number', '202501002')->first();
+        $otherEnrollment = StudentEnrollment::where('student_id', $otherStudent->id)->first();
+
+        $response = $this->withHeader('Authorization', "Bearer {$this->studentToken}")
+            ->getJson("/api/v1/enrollments/{$otherEnrollment->id}/available-classes");
+
+        $response->assertStatus(403);
     }
 }

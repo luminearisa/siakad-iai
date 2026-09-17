@@ -6,6 +6,7 @@ import { useNavigationStore } from '@/stores/navigation'
 import type { NavigationItem } from '@/constants/navigation'
 import {
   LayoutDashboard,
+  Building,
   Building2,
   GraduationCap,
   Users,
@@ -31,6 +32,13 @@ import {
   Database,
   BookMarked,
   Circle,
+  PieChart,
+  CheckCircle2,
+  Sliders,
+  Settings,
+  CreditCard,
+  ListChecks,
+  BadgeCheck,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -41,6 +49,7 @@ const isCollapsed = computed(() => appStore.sidebarCollapsed)
 
 const iconMap: Record<string, any> = {
   LayoutDashboard,
+  Building,
   Building2,
   GraduationCap,
   Users,
@@ -63,27 +72,54 @@ const iconMap: Record<string, any> = {
   Database,
   BookMarked,
   Circle,
+  PieChart,
+  CheckCircle2,
+  Sliders,
+  Settings,
+  CreditCard,
+  ListChecks,
+  BadgeCheck,
 }
 
 function getIcon(name: string) {
   return iconMap[name] || LayoutDashboard
 }
 
-// Track expanded items by id
-const expandedItems = ref<Record<string, boolean>>({
-  'master-data-group': true,
-  'periode-group': true,
-})
+// Track expanded items by id. Default: semua grup tertutup agar sidebar ringkas —
+// grup yang memuat rute aktif dibuka otomatis oleh checkAutoExpand().
+const expandedItems = ref<Record<string, boolean>>({})
 
 function toggleExpand(id: string) {
   expandedItems.value[id] = !expandedItems.value[id]
 }
 
-function isItemActive(item: NavigationItem): boolean {
-  if (item.to) {
-    if (item.to === '/dashboard' && route.path === '/dashboard') return true
-    if (item.to !== '/dashboard' && route.path.startsWith(item.to)) return true
+// Kumpulkan semua target rute yang terdaftar di menu (untuk pencocokan terpanjang).
+const navTargets = computed<string[]>(() => {
+  const targets: string[] = []
+  const walk = (items: NavigationItem[]) => {
+    for (const item of items) {
+      if (item.to) targets.push(item.to)
+      if (item.children) walk(item.children)
+    }
   }
+  for (const section of navigationStore.authorizedNavigation) walk(section.items)
+  return targets
+})
+
+/**
+ * Rute menu yang benar-benar aktif = target terpanjang yang cocok dengan URL.
+ * Mencegah dua menu tersorot bersamaan (mis. /enrollments ikut menyala saat
+ * berada di /enrollments/packages, atau /courses saat di /courses/types).
+ */
+const activePath = computed<string | null>(() => {
+  const path = route.path
+  const matches = navTargets.value.filter((t) => path === t || path.startsWith(`${t}/`))
+  if (matches.length === 0) return null
+  return matches.reduce((longest, current) => (current.length > longest.length ? current : longest))
+})
+
+function isItemActive(item: NavigationItem): boolean {
+  if (item.to) return item.to === activePath.value
   if (item.children) {
     return item.children.some((child) => isItemActive(child))
   }
@@ -106,9 +142,15 @@ function checkAutoExpand() {
   }
 }
 
-watch(() => route.path, () => {
-  checkAutoExpand()
-}, { immediate: true })
+// Buka otomatis grup yang memuat rute aktif. Ikut dipicu saat daftar menu berubah
+// (mis. permission user selesai dimuat) agar grup tetap terbuka walau URL tidak berubah.
+watch(
+  () => [route.path, navigationStore.authorizedNavigation] as const,
+  () => {
+    checkAutoExpand()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -260,7 +302,13 @@ watch(() => route.path, () => {
                         @click="toggleExpand(sub.id)"
                       >
                         <div class="flex items-center gap-2 truncate">
-                          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400/60" />
+                          <component
+                            :is="getIcon(sub.icon)"
+                            :class="[
+                              'w-3.5 h-3.5 shrink-0 transition-colors',
+                              isItemActive(sub) ? 'text-gold-400' : 'text-emerald-300/60',
+                            ]"
+                          />
                           <span class="truncate">{{ sub.label }}</span>
                         </div>
                         <ChevronDown
@@ -278,13 +326,22 @@ watch(() => route.path, () => {
                             v-if="leaf.to"
                             :to="leaf.to"
                             :class="[
-                              'flex items-center justify-between px-2 py-1.5 rounded-md transition-all text-xs font-medium group',
+                              'flex items-center justify-between gap-2 px-2 py-1.5 rounded-md transition-all text-xs font-medium group',
                               isItemActive(leaf)
                                 ? 'bg-brand-600 text-white font-semibold shadow-2xs border-l-2 border-gold-400 pl-2'
                                 : 'text-emerald-200/60 hover:text-white hover:bg-emerald-900/40',
                             ]"
                           >
-                            <span class="truncate">{{ leaf.label }}</span>
+                            <span class="flex items-center gap-2 truncate">
+                              <component
+                                :is="getIcon(leaf.icon)"
+                                :class="[
+                                  'w-3.5 h-3.5 shrink-0 transition-colors',
+                                  isItemActive(leaf) ? 'text-white' : 'text-emerald-400/50 group-hover:text-emerald-200',
+                                ]"
+                              />
+                              <span class="truncate">{{ leaf.label }}</span>
+                            </span>
                           </router-link>
                         </li>
                       </ul>

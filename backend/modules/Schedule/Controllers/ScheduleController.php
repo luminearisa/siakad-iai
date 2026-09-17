@@ -5,6 +5,7 @@ namespace Modules\Schedule\Controllers;
 use App\Http\Controllers\Controller;
 use App\Support\QueryFilter;
 use App\Support\Traits\HasApiResponse;
+use App\Support\Traits\ScopesToOwnLecturer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Audit\Services\AuditService;
@@ -17,7 +18,7 @@ use Modules\Schedule\Services\ScheduleService;
 
 class ScheduleController extends Controller
 {
-    use HasApiResponse;
+    use HasApiResponse, ScopesToOwnLecturer;
 
     public function __construct(
         protected ScheduleService $scheduleService
@@ -27,15 +28,24 @@ class ScheduleController extends Controller
     {
         $query = ClassSchedule::with(['academicClass.course', 'academicClass.lecturers', 'room']);
 
-        if ($request->filled('semester_id')) {
-            $query->whereHas('academicClass', function ($q) use ($request) {
-                $q->where('semester_id', $request->query('semester_id'));
+        // A lecturer who cannot manage schedules only sees their own teaching
+        // schedule, regardless of the filters they send.
+        $scopedToOwnSchedule = $this->scopeToOwnLecturer(
+            $request,
+            $query,
+            'schedules.create',
+            'academicClass.lecturers'
+        );
+
+        if (!$scopedToOwnSchedule && $request->filled('lecturer_id')) {
+            $query->whereHas('academicClass.lecturers', function ($q) use ($request) {
+                $q->where('lecturers.id', $request->query('lecturer_id'));
             });
         }
 
-        if ($request->filled('lecturer_id')) {
-            $query->whereHas('academicClass.lecturers', function ($q) use ($request) {
-                $q->where('lecturers.id', $request->query('lecturer_id'));
+        if ($request->filled('semester_id')) {
+            $query->whereHas('academicClass', function ($q) use ($request) {
+                $q->where('semester_id', $request->query('semester_id'));
             });
         }
 

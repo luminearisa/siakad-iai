@@ -8,6 +8,7 @@ import type { SubCourseLearningOutcome, CourseLearningOutcome } from '@/types/ou
 import PageContainer from '@/components/data-display/PageContainer.vue'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
+import Select from '@/components/ui/Select.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import ConfirmModal from '@/components/feedback/ConfirmModal.vue'
 import AiOutcomeGeneratorModal from '@/components/outcomes/AiOutcomeGeneratorModal.vue'
@@ -20,6 +21,15 @@ const cpmks = ref<CourseLearningOutcome[]>([])
 const search = ref<string>('')
 const perPage = ref<number>(10)
 const selectedCpmkFilter = ref<string>('')
+
+// Daftar CPMK bisa sangat panjang -> pakai search select.
+const cpmkFilterOptions = computed(() => [
+  { value: '', label: 'Semua CPMK Induk' },
+  ...cpmks.value.map((c) => ({
+    value: String(c.id),
+    label: `${c.code} - ${c.name}`,
+  })),
+])
 
 // AI Modal State
 const aiModalOpen = ref<boolean>(false)
@@ -164,15 +174,14 @@ onMounted(() => {
             </div>
 
             <!-- Filter CPMK Induk -->
-            <select
+            <Select
               v-model="selectedCpmkFilter"
-              class="border border-slate-300 rounded-md text-xs py-1 px-2.5 bg-white text-slate-800 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none"
-            >
-              <option value="">Semua CPMK Induk</option>
-              <option v-for="c in cpmks" :key="c.id" :value="String(c.id)">
-                {{ c.code }} - {{ c.name.slice(0, 40) }}...
-              </option>
-            </select>
+              :options="cpmkFilterOptions"
+              size="sm"
+              placeholder="Semua CPMK Induk"
+              search-placeholder="Cari CPMK..."
+              class="min-w-56"
+            />
           </div>
 
           <div class="relative w-full sm:w-64">

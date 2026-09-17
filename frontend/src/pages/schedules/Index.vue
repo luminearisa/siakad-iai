@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Plus, List, CalendarDays, Calendar } from 'lucide-vue-next'
 import { scheduleService } from '@/services/api/schedules'
 import { usePermissions } from '@/composables/usePermissions'
+import { useAuth } from '@/composables/useAuth'
 import { useToast } from '@/composables/useToast'
 import type { ClassSchedule, ScheduleFilters as ScheduleFiltersType } from '@/types/schedule'
 import type { ApiMeta } from '@/types/api'
@@ -11,6 +12,7 @@ import PageContainer from '@/components/data-display/PageContainer.vue'
 import PageHeader from '@/components/data-display/PageHeader.vue'
 import Button from '@/components/ui/Button.vue'
 import ConfirmModal from '@/components/feedback/ConfirmModal.vue'
+import PersonalScopeNotice from '@/components/feedback/PersonalScopeNotice.vue'
 import ScheduleFilters from './components/ScheduleFilters.vue'
 import ScheduleListView from './views/ScheduleListView.vue'
 import WeeklyScheduleView from './views/WeeklyScheduleView.vue'
@@ -19,7 +21,12 @@ import DailyScheduleView from './views/DailyScheduleView.vue'
 const route = useRoute()
 const router = useRouter()
 const { can } = usePermissions()
+const { isLecturer } = useAuth()
 const toast = useToast()
+
+// A plain lecturer (no schedule management rights) only ever sees their own
+// teaching schedule, because the API scopes the listing to their lecturer profile.
+const showLecturerScope = computed<boolean>(() => isLecturer.value && !can('schedules.create'))
 
 type ViewMode = 'list' | 'weekly' | 'daily'
 const currentView = ref<ViewMode>((route.query.view as ViewMode) || 'list')
@@ -122,7 +129,9 @@ onMounted(() => {
   <PageContainer>
     <PageHeader
       title="Jadwal Perkuliahan"
-      subtitle="Kelola jadwal perkuliahan, alokasi ruangan, slot waktu, dan resolusi konflik jadwal"
+      :subtitle="showLecturerScope
+        ? 'Jadwal mengajar Anda pada semester berjalan'
+        : 'Kelola jadwal perkuliahan, alokasi ruangan, slot waktu, dan resolusi konflik jadwal'"
       :breadcrumbs="[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Jadwal Kuliah' }]"
     >
       <template #actions>
@@ -175,6 +184,9 @@ onMounted(() => {
     </PageHeader>
 
     <div class="space-y-4">
+      <!-- Lecturer personal scope notice -->
+      <PersonalScopeNotice v-if="showLecturerScope" subject="jadwal perkuliahan" />
+
       <!-- Search & Filters -->
       <ScheduleFilters v-model="filters" @change="loadSchedules" />
 

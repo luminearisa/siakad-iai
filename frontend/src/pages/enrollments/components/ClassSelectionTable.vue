@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Plus, Check, MapPin, Users, Clock } from 'lucide-vue-next'
+import { Plus, Check, MapPin, Users, Clock, ShieldAlert } from 'lucide-vue-next'
 import type { AcademicClass } from '@/types/class'
-import type { StudentEnrollment } from '@/types/enrollment'
+import type { AvailableClass, StudentEnrollment } from '@/types/enrollment'
 import Button from '@/components/ui/Button.vue'
 import ClassCapacityBadge from '@/pages/classes/components/ClassCapacityBadge.vue'
 
 interface Props {
-  classes: AcademicClass[]
+  classes: (AcademicClass | AvailableClass)[]
   enrollment: StudentEnrollment
   loading?: boolean
   submittingClassId?: number | null
@@ -29,6 +29,21 @@ const enrolledClassIds = computed(() => {
 const enrolledCourseIds = computed(() => {
   return (props.enrollment.items || []).map((i) => i.course_id)
 })
+
+/**
+ * Classes come from the available-classes endpoint, which annotates each row
+ * with `is_eligible`. Legacy payloads without the flag are treated as eligible.
+ */
+function isEligible(cls: AcademicClass | AvailableClass): boolean {
+  return (cls as AvailableClass).is_eligible !== false
+}
+
+function eligibilityReason(cls: AcademicClass | AvailableClass): string {
+  const candidate = cls as AvailableClass
+  return candidate.eligibility_reason
+    || candidate.eligibility_reasons?.[0]
+    || 'Tidak memenuhi syarat pengambilan mata kuliah.'
+}
 
 function formatTime(timeStr?: string): string {
   if (!timeStr) return ''
@@ -159,7 +174,17 @@ function getDayLabel(day?: string): string {
                 Penuh
               </span>
 
-              <!-- Case 4: Tombol Ambil Kelas -->
+              <!-- Case 4: Gagal aturan KRS (kurikulum, jadwal, prasyarat, SKS) -->
+              <span
+                v-else-if="!isEligible(c)"
+                class="inline-flex items-center gap-1 font-medium text-rose-600 bg-rose-50 px-2 py-1 rounded text-3xs border border-rose-200 cursor-not-allowed"
+                :title="eligibilityReason(c)"
+              >
+                <ShieldAlert class="w-3 h-3" />
+                Tidak Memenuhi Syarat
+              </span>
+
+              <!-- Case 5: Tombol Ambil Kelas -->
               <Button
                 v-else
                 variant="primary"
@@ -225,6 +250,14 @@ function getDayLabel(day?: string): string {
           >
             <Check class="w-3 h-3" />
             <span>Sudah Diambil</span>
+          </span>
+          <span
+            v-else-if="!isEligible(c)"
+            class="inline-flex items-center gap-1 font-medium text-rose-600 bg-rose-50 px-2 py-0.5 rounded text-2xs border border-rose-200"
+            :title="eligibilityReason(c)"
+          >
+            <ShieldAlert class="w-3 h-3" />
+            <span>Tidak Memenuhi Syarat</span>
           </span>
           <Button
             v-else

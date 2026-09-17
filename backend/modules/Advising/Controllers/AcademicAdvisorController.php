@@ -5,6 +5,7 @@ namespace Modules\Advising\Controllers;
 use App\Http\Controllers\Controller;
 use App\Support\QueryFilter;
 use App\Support\Traits\HasApiResponse;
+use App\Support\Traits\ScopesToOwnLecturer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Advising\Models\AcademicAdvisor;
@@ -16,7 +17,7 @@ use Modules\Student\Models\Student;
 
 class AcademicAdvisorController extends Controller
 {
-    use HasApiResponse;
+    use HasApiResponse, ScopesToOwnLecturer;
 
     public function __construct(
         protected AdvisingService $advisingService
@@ -33,6 +34,9 @@ class AcademicAdvisorController extends Controller
                 $query->where('student_id', $student->id);
             }
         }
+
+        // A plain lecturer only sees the students they advise.
+        $this->scopeToOwnLecturer($request, $query, 'advising.assign', null, 'lecturer_id');
 
         if ($request->filled('search')) {
             $search = $request->query('search');
@@ -93,8 +97,12 @@ class AcademicAdvisorController extends Controller
         );
     }
 
-    public function show(AcademicAdvisor $advisor): JsonResponse
+    public function show(Request $request, AcademicAdvisor $advisor): JsonResponse
     {
+        if (!$this->lecturerMayAccessOwnedRecord($request, $advisor->lecturer_id, 'advising.assign')) {
+            return $this->errorResponse('Unauthorized to view this academic advisor assignment.', 403);
+        }
+
         return $this->successResponse(
             data: new AcademicAdvisorResource($advisor->load(['student.studyProgram.faculty', 'lecturer.homebaseStudyProgram.faculty'])),
             message: 'Academic advisor assignment retrieved successfully.'
@@ -167,6 +175,18 @@ class AcademicAdvisorController extends Controller
     public function distribution(Request $request): JsonResponse
     {
         $query = Student::with(['studyProgram', 'academicAdvisor.lecturer']);
+
+        // A plain lecturer only sees the students they advise (dosen wali).
+        [$isLecturerOnly, $ownLecturerId] = $this->resolveOwnLecturerScope($request, 'advising.assign');
+        if ($isLecturerOnly) {
+            if ($ownLecturerId) {
+                $query->whereHas('academicAdvisor', function ($q) use ($ownLecturerId) {
+                    $q->where('lecturer_id', $ownLecturerId);
+                });
+            } else {
+                $query->whereRaw('1 = 0');
+            }
+        }
 
         if ($request->filled('search')) {
             $search = $request->query('search');

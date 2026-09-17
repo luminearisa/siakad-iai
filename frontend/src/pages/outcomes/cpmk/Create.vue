@@ -12,6 +12,7 @@ import PageContainer from '@/components/data-display/PageContainer.vue'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
+import Select from '@/components/ui/Select.vue'
 import AiOutcomeGeneratorModal from '@/components/outcomes/AiOutcomeGeneratorModal.vue'
 
 const router = useRouter()
@@ -24,6 +25,15 @@ const saving = ref<boolean>(false)
 const studyPrograms = ref<StudyProgram[]>([])
 const courses = ref<Course[]>([])
 const aiModalOpen = ref<boolean>(false)
+
+// Daftar mata kuliah bisa sangat panjang -> pakai search select.
+const courseOptions = computed(() => [
+  { value: null as number | null, label: 'Pilih Mata Kuliah (Opsional)' },
+  ...courses.value.map((c) => ({
+    value: c.id as number | null,
+    label: `${c.code} - ${c.name}`,
+  })),
+])
 
 const form = reactive({
   study_program_id: null as number | null,
@@ -176,15 +186,12 @@ onMounted(() => {
               <label class="block text-xs font-semibold text-slate-800">
                 Mata Kuliah Pengampu
               </label>
-              <select
+              <Select
                 v-model="form.course_id"
-                class="w-full text-xs py-2 px-3 border border-slate-300 rounded-lg text-slate-900 bg-white focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none"
-              >
-                <option :value="null">Pilih Mata Kuliah (Opsional)</option>
-                <option v-for="c in courses" :key="c.id" :value="c.id">
-                  {{ c.code }} - {{ c.name }}
-                </option>
-              </select>
+                :options="courseOptions"
+                placeholder="Pilih Mata Kuliah (Opsional)"
+                search-placeholder="Cari mata kuliah..."
+              />
             </div>
           </div>
 

@@ -23,14 +23,14 @@ class StudentAttendanceController extends Controller
         protected AttendanceService $attendanceService
     ) {}
 
+    /**
+     * Attendance sheet for a session: the full class roster merged with any
+     * records already saved, so the lecturer always has every student to mark.
+     */
     public function sessionStudents(TeachingSession $teaching_session): JsonResponse
     {
-        $attendances = StudentAttendance::where('teaching_session_id', $teaching_session->id)
-            ->with(['student.studyProgram'])
-            ->get();
-
         return $this->successResponse(
-            data: StudentAttendanceResource::collection($attendances),
+            data: $this->attendanceService->getSessionAttendanceSheet($teaching_session),
             message: 'Session student attendances retrieved successfully.'
         );
     }
@@ -40,12 +40,8 @@ class StudentAttendanceController extends Controller
         $userId = $request->user()?->id;
         $this->attendanceService->recordBatch($teaching_session, $request->input('attendances'), $userId);
 
-        $attendances = StudentAttendance::where('teaching_session_id', $teaching_session->id)
-            ->with(['student.studyProgram'])
-            ->get();
-
         return $this->successResponse(
-            data: StudentAttendanceResource::collection($attendances),
+            data: $this->attendanceService->getSessionAttendanceSheet($teaching_session),
             message: 'Attendances recorded successfully.'
         );
     }

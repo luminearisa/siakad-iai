@@ -20,6 +20,7 @@ import PageContainer from '@/components/data-display/PageContainer.vue'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
+import Select from '@/components/ui/Select.vue'
 import Pagination from '@/components/data-display/Pagination.vue'
 
 const toast = useToast()
@@ -33,6 +34,23 @@ const semesters = ref<Semester[]>([])
 const studyPrograms = ref<StudyProgram[]>([])
 const lecturers = ref<Lecturer[]>([])
 const rooms = ref<Room[]>([])
+
+// Daftar ruangan & dosen bisa sangat panjang -> pakai search select.
+const roomOptions = computed(() => [
+  { value: null as number | null, label: 'Pilih Ruang Ujian' },
+  ...rooms.value.map((r) => ({
+    value: r.id as number | null,
+    label: `${r.name} (${r.code}) - Kapasitas: ${r.capacity}`,
+  })),
+])
+
+const lecturerOptions = computed(() => [
+  { value: null as number | null, label: 'Pilih Dosen Pengawas' },
+  ...lecturers.value.map((l) => ({
+    value: l.id as number | null,
+    label: `${l.full_name} (NIDN: ${l.nidn || '-'})`,
+  })),
+])
 
 // Exam Type: 'uts' or 'uas'
 const examType = ref<'uts' | 'uas'>('uts')
@@ -634,15 +652,12 @@ onMounted(() => {
             <label class="block font-semibold text-slate-700 mb-1.5">
               Ruang Ujian
             </label>
-            <select
+            <Select
               v-model="scheduleForm.room_id"
-              class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600 outline-none"
-            >
-              <option :value="null">Pilih Ruang Ujian</option>
-              <option v-for="r in rooms" :key="r.id" :value="r.id">
-                {{ r.name }} ({{ r.code }}) - Kapasitas: {{ r.capacity }}
-              </option>
-            </select>
+              :options="roomOptions"
+              placeholder="Pilih Ruang Ujian"
+              search-placeholder="Cari ruang ujian..."
+            />
           </div>
 
           <!-- Catatan -->
@@ -715,15 +730,12 @@ onMounted(() => {
             <label class="block font-semibold text-slate-700 mb-1.5">
               Dosen Pengawas Ujian <span class="text-rose-500">*</span>
             </label>
-            <select
+            <Select
               v-model="proctorForm.proctor_lecturer_id"
-              class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600 outline-none"
-            >
-              <option :value="null">Pilih Dosen Pengawas</option>
-              <option v-for="l in lecturers" :key="l.id" :value="l.id">
-                {{ l.full_name }} (NIDN: {{ l.nidn || '-' }})
-              </option>
-            </select>
+              :options="lecturerOptions"
+              placeholder="Pilih Dosen Pengawas"
+              search-placeholder="Cari nama dosen..."
+            />
           </div>
         </div>
 

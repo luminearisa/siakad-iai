@@ -1,17 +1,24 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Plus,
   Edit,
   Trash2,
   QrCode,
-  CheckCircle,
+  CheckCircle2,
   ChevronLeft,
+  CalendarDays,
+  Clock,
+  DoorOpen,
+  Users,
+  AlertTriangle,
+  ListChecks,
 } from 'lucide-vue-next'
 import { attendanceService } from '@/services/api/attendance'
 import { classService } from '@/services/api/classes'
 import { useToast } from '@/composables/useToast'
+import { formatDate, formatTime } from '@/utils/format'
 import type { AcademicClass } from '@/types/class'
 import type {
   ClassAttendanceRecap,
@@ -35,7 +42,10 @@ const router = useRouter()
 const toast = useToast()
 
 const classId = computed(() => Number(route.params.id))
-const activeTab = ref<string>('matrix')
+
+// Attendance comes first: a lecturer lands here to mark students, not to read
+// a 16-column matrix.
+const activeTab = ref<string>('sessions')
 
 const academicClass = ref<AcademicClass | null>(null)
 const recapData = ref<ClassAttendanceRecap | null>(null)
@@ -54,16 +64,59 @@ const sessionToDelete = ref<TeachingSession | null>(null)
 const deleting = ref<boolean>(false)
 
 const tabs: TabItem[] = [
+  { id: 'sessions', label: 'Pertemuan & Presensi' },
+  { id: 'bap', label: 'Berita Acara (BAP)' },
   { id: 'matrix', label: 'Matriks Kehadiran (1–16)' },
-  { id: 'bap', label: 'Berita Acara Perkuliahan (BAP)' },
-  { id: 'sessions', label: 'Daftar Sesi Pertemuan' },
 ]
+
+/** Local (not UTC) YYYY-MM-DD so "today" matches the user's calendar. */
+function todayIso(): string {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}
+
+const enrolledCount = computed<number>(() => recapData.value?.recap?.length ?? 0)
+
+const sessionsByMeeting = computed<TeachingSession[]>(() =>
+  [...sessions.value].sort((a, b) => a.meeting_number - b.meeting_number),
+)
+
+const todaySession = computed<TeachingSession | null>(() =>
+  sessions.value.find((s) => s.session_date === todayIso()) ?? null,
+)
+
+/** The meeting a lecturer most likely wants next: today's, else the latest one. */
+const focusSession = computed<TeachingSession | null>(() => {
+  if (todaySession.value) return todaySession.value
+  if (sessions.value.length === 0) return null
+  return sessionsByMeeting.value[sessionsByMeeting.value.length - 1]
+})
 
 const nextMeetingNumber = computed(() => {
   if (sessions.value.length === 0) return 1
-  const maxNumber = Math.max(...sessions.value.map((s) => s.meeting_number))
-  return maxNumber + 1
+  return Math.max(...sessions.value.map((s) => s.meeting_number)) + 1
 })
+
+/** How complete is the attendance for one meeting? Drives the per-row CTA. */
+function attendanceState(session: TeachingSession) {
+  const recorded = session.attendances_count ?? 0
+  const total = enrolledCount.value
+
+  if (recorded === 0) {
+    return { key: 'empty', label: 'Belum diabsen', variant: 'warning' as const, cta: 'Absen Sekarang' }
+  }
+  if (total > 0 && recorded >= total) {
+    return { key: 'full', label: 'Presensi lengkap', variant: 'success' as const, cta: 'Ubah Presensi' }
+  }
+  return { key: 'partial', label: 'Sebagian terisi', variant: 'info' as const, cta: 'Lanjutkan Absen' }
+}
+
+function attendanceCountLabel(session: TeachingSession): string {
+  const recorded = session.attendances_count ?? 0
+  return enrolledCount.value > 0 ? `${recorded} / ${enrolledCount.value} mahasiswa` : `${recorded} presensi tercatat`
+}
 
 async function loadData() {
   if (!classId.value) return
@@ -83,6 +136,27 @@ async function loadData() {
   } finally {
     loading.value = false
   }
+}
+
+/** Deep link from the attendance dashboard: /attendance/classes/:id?session=123 */
+async function openSessionFromQuery() {
+  const raw = route.query.session
+  const sessionId = Array.isArray(raw) ? raw[0] : raw
+  if (!sessionId) return
+
+  const session = sessions.value.find((s) => String(s.id) === String(sessionId))
+  if (!session) {
+    toast.error('Sesi pertemuan tidak ditemukan pada kelas ini.')
+    return
+  }
+
+  activeTab.value = 'sessions'
+  openBatchAttendance(session)
+
+  // Drop the query so a refresh or back-navigation does not reopen the sheet.
+  const rest = { ...route.query }
+  delete rest.session
+  router.replace({ path: route.path, query: rest })
 }
 
 function openCreateSessionModal() {
@@ -126,9 +200,14 @@ async function handleDeleteSession() {
   }
 }
 
-onMounted(() => {
-  loadData()
+onMounted(async () => {
+  await loadData()
+  await nextTick()
+  openSessionFromQuery()
 })
+
+// Keep the sheet in sync when the same route is reused with a different session.
+watch(() => route.query.session, () => openSessionFromQuery())
 </script>
 
 <template>
@@ -146,14 +225,10 @@ onMounted(() => {
       <template #actions>
         <div class="flex items-center gap-2">
           <Button variant="outline" size="sm" @click="router.push('/attendance')">
-            <ChevronLeft class="w-4 h-4 mr-1" />
+            <ChevronLeft class="w-4 h-4" />
             <span>Kembali</span>
           </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            @click="openCreateSessionModal"
-          >
+          <Button variant="primary" size="sm" @click="openCreateSessionModal">
             <Plus class="w-4 h-4" />
             <span>Buka Pertemuan Baru</span>
           </Button>
@@ -162,17 +237,289 @@ onMounted(() => {
     </PageHeader>
 
     <div class="space-y-4">
-      <!-- Tabs Navigation -->
-      <Tabs
-        :tabs="tabs"
-        v-model="activeTab"
-      />
+      <!-- ===================== FOCUS: TAKE ATTENDANCE NOW ===================== -->
+      <Card v-if="focusSession" class="overflow-hidden border-brand-200">
+        <div class="p-4 sm:p-5">
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div class="flex items-start gap-3 min-w-0">
+              <span class="flex items-center justify-center w-11 h-11 rounded-xl bg-brand-900 text-white shrink-0">
+                <ListChecks class="w-5 h-5" />
+              </span>
 
-      <!-- TAB 1: Matriks Kehadiran (Matrix 1-16) -->
+              <div class="min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-2xs font-bold uppercase tracking-wider text-brand-800">
+                    {{ todaySession ? 'Pertemuan Hari Ini' : 'Pertemuan Terakhir' }}
+                  </span>
+                  <Badge :variant="attendanceState(focusSession).variant" size="xs">
+                    {{ attendanceState(focusSession).label }}
+                  </Badge>
+                </div>
+
+                <h3 class="text-sm font-bold text-slate-900 mt-1 truncate">
+                  Pertemuan {{ focusSession.meeting_number }} · {{ focusSession.topic || 'Topik belum diisi' }}
+                </h3>
+
+                <div class="flex items-center gap-3 flex-wrap mt-1.5 text-2xs text-slate-500">
+                  <span class="inline-flex items-center gap-1">
+                    <CalendarDays class="w-3.5 h-3.5" />
+                    {{ formatDate(focusSession.session_date) }}
+                  </span>
+                  <span class="inline-flex items-center gap-1">
+                    <Clock class="w-3.5 h-3.5" />
+                    {{ formatTime(focusSession.start_time) }}–{{ formatTime(focusSession.end_time) }}
+                  </span>
+                  <span v-if="focusSession.room" class="inline-flex items-center gap-1">
+                    <DoorOpen class="w-3.5 h-3.5" />
+                    {{ focusSession.room.code || focusSession.room.name }}
+                  </span>
+                  <span class="inline-flex items-center gap-1 font-medium text-slate-700">
+                    <Users class="w-3.5 h-3.5" />
+                    {{ attendanceCountLabel(focusSession) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2 shrink-0">
+              <Button variant="outline" size="sm" @click="openQuickCheckIn(focusSession)">
+                <QrCode class="w-3.5 h-3.5" />
+                <span>Token Mandiri</span>
+              </Button>
+              <Button variant="primary" size="md" @click="openBatchAttendance(focusSession)">
+                <CheckCircle2 class="w-4 h-4" />
+                <span>{{ attendanceState(focusSession).cta }}</span>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <!-- Empty state when the class has no meetings yet -->
+      <Card v-else-if="!loading" class="border-dashed">
+        <div class="py-8 text-center">
+          <span class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 mb-3">
+            <AlertTriangle class="w-6 h-6 text-amber-600" />
+          </span>
+          <h3 class="text-sm font-bold text-slate-800">Belum ada pertemuan untuk kelas ini</h3>
+          <p class="text-xs text-slate-500 mt-1 mb-4">
+            Buka pertemuan pertama untuk mulai mencatat Berita Acara dan presensi mahasiswa.
+          </p>
+          <Button variant="primary" size="md" @click="openCreateSessionModal">
+            <Plus class="w-4 h-4" />
+            <span>Buka Pertemuan ke-{{ nextMeetingNumber }}</span>
+          </Button>
+        </div>
+      </Card>
+
+      <!-- Tabs Navigation -->
+      <Tabs :tabs="tabs" v-model="activeTab" />
+
+      <!-- ============ TAB 1: Pertemuan & Presensi (primary action surface) ============ -->
+      <div v-if="activeTab === 'sessions'" class="space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-3 border border-slate-200 rounded-lg text-xs">
+          <div class="flex items-center gap-3">
+            <span class="text-slate-600 font-medium">
+              Total Pertemuan: <strong>{{ sessions.length }}</strong>
+            </span>
+            <span v-if="enrolledCount > 0" class="text-slate-500">
+              Mahasiswa terdaftar: <strong>{{ enrolledCount }}</strong>
+            </span>
+          </div>
+          <Button variant="primary" size="xs" @click="openCreateSessionModal">
+            <Plus class="w-3.5 h-3.5" />
+            <span>Tambah Pertemuan</span>
+          </Button>
+        </div>
+
+        <div v-if="loading" class="text-center py-10 text-xs text-slate-400 bg-white border border-slate-200 rounded-lg">
+          Memuat daftar pertemuan...
+        </div>
+
+        <div v-else-if="sessions.length === 0" class="text-center py-10 bg-white border border-dashed border-slate-300 rounded-lg">
+          <p class="text-xs font-semibold text-slate-700">Belum ada pertemuan</p>
+          <p class="text-2xs text-slate-400 mt-1">Buka pertemuan baru untuk mulai mengabsen mahasiswa.</p>
+        </div>
+
+        <div v-else class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          <div
+            v-for="session in sessionsByMeeting"
+            :key="session.id"
+            class="bg-white border rounded-lg p-3.5 flex flex-col gap-3 transition-all"
+            :class="session.id === todaySession?.id
+              ? 'border-brand-300 ring-1 ring-brand-200 shadow-subtle'
+              : 'border-slate-200 hover:border-brand-300 hover:shadow-subtle'"
+          >
+            <!-- Header row -->
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-1.5">
+                <span class="font-mono font-extrabold text-xs text-brand-900 bg-brand-50 px-2 py-1 rounded-md border border-brand-200">
+                  P{{ session.meeting_number }}
+                </span>
+                <span
+                  v-if="session.id === todaySession?.id"
+                  class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-3xs font-bold uppercase tracking-wide"
+                >
+                  Hari ini
+                </span>
+              </div>
+
+              <div class="flex items-center gap-1">
+                <button
+                  type="button"
+                  class="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                  title="Ubah pertemuan"
+                  @click="openEditSessionModal(session)"
+                >
+                  <Edit class="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  class="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                  title="Hapus pertemuan"
+                  @click="confirmDeleteSession(session)"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Topic & schedule -->
+            <div class="min-w-0">
+              <h4 class="font-bold text-xs text-slate-900 line-clamp-2">
+                {{ session.topic || `Pertemuan ${session.meeting_number}` }}
+              </h4>
+              <div class="flex items-center gap-2 flex-wrap mt-1 text-2xs text-slate-500">
+                <span class="inline-flex items-center gap-1">
+                  <CalendarDays class="w-3 h-3" />
+                  {{ formatDate(session.session_date) }}
+                </span>
+                <span class="inline-flex items-center gap-1">
+                  <Clock class="w-3 h-3" />
+                  {{ formatTime(session.start_time) }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Attendance progress -->
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5">
+                <Badge :variant="attendanceState(session).variant" size="xs">
+                  {{ attendanceState(session).label }}
+                </Badge>
+              </div>
+              <span class="text-2xs text-slate-500 font-medium">
+                {{ attendanceCountLabel(session) }}
+              </span>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex items-center gap-2 pt-2.5 border-t border-slate-100">
+              <Button
+                variant="primary"
+                size="sm"
+                block
+                @click="openBatchAttendance(session)"
+              >
+                <CheckCircle2 class="w-3.5 h-3.5" />
+                <span>{{ attendanceState(session).cta }}</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                class="shrink-0"
+                title="Buka token presensi mandiri mahasiswa"
+                @click="openQuickCheckIn(session)"
+              >
+                <QrCode class="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ TAB 2: Berita Acara Perkuliahan (BAP) ============ -->
+      <div v-if="activeTab === 'bap'" class="space-y-4">
+        <div v-if="sessions.length === 0" class="text-center py-10 bg-white border border-dashed border-slate-300 rounded-lg">
+          <p class="text-xs font-semibold text-slate-700">Belum ada Berita Acara</p>
+          <p class="text-2xs text-slate-400 mt-1">BAP akan muncul setelah pertemuan dibuat.</p>
+        </div>
+
+        <div v-else class="grid grid-cols-1 gap-3.5">
+          <Card
+            v-for="session in sessionsByMeeting"
+            :key="session.id"
+            class="hover:border-brand-300 transition-colors"
+          >
+            <div class="space-y-3">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                <div class="flex items-center gap-2.5">
+                  <span class="font-mono font-extrabold text-sm text-brand-900 bg-brand-50 px-2.5 py-1 rounded-lg border border-brand-200">
+                    Pertemuan {{ session.meeting_number }}
+                  </span>
+                  <div>
+                    <h4 class="font-bold text-sm text-slate-900">{{ session.topic || 'Belum ada topik bahasan' }}</h4>
+                    <span class="text-2xs text-slate-400 font-medium">
+                      {{ formatDate(session.session_date) }} · {{ formatTime(session.start_time) }} - {{ formatTime(session.end_time) }}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-1.5">
+                  <TeachingMethodBadge :method="session.teaching_method" size="sm" />
+                  <Badge :variant="session.status === 'open' ? 'success' : (session.status === 'closed' ? 'neutral' : 'info')" size="sm">
+                    {{ session.status_label || session.status }}
+                  </Badge>
+                </div>
+              </div>
+
+              <!-- BAP Notes -->
+              <div class="bg-slate-50 rounded-lg p-3 border border-slate-200/80 text-xs">
+                <span class="font-bold text-2xs uppercase tracking-wider text-slate-500 block mb-1">
+                  Catatan Berita Acara (BAP):
+                </span>
+                <p class="text-slate-700 leading-relaxed whitespace-pre-line">
+                  {{ session.notes || 'Belum ada catatan berita acara perkuliahan untuk pertemuan ini.' }}
+                </p>
+              </div>
+
+              <!-- Footer Details & Actions -->
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 text-2xs text-slate-500">
+                <div class="flex items-center gap-3 flex-wrap">
+                  <span>Pengajar: <strong>{{ session.lecturer?.full_name || '-' }}</strong></span>
+                  <span v-if="session.room">Ruangan: <strong>{{ session.room.name }} ({{ session.room.code }})</strong></span>
+                  <Badge :variant="attendanceState(session).variant" size="xs">
+                    {{ attendanceCountLabel(session) }}
+                  </Badge>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <Button variant="outline" size="xs" @click="openQuickCheckIn(session)">
+                    <QrCode class="w-3.5 h-3.5" />
+                    <span>Presensi Mandiri</span>
+                  </Button>
+                  <Button variant="primary" size="xs" @click="openBatchAttendance(session)">
+                    <CheckCircle2 class="w-3.5 h-3.5" />
+                    <span>{{ attendanceState(session).cta }}</span>
+                  </Button>
+                  <Button variant="ghost" size="xs" @click="openEditSessionModal(session)">
+                    <Edit class="w-3.5 h-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="xs" class="text-rose-600 hover:bg-rose-50" @click="confirmDeleteSession(session)">
+                    <Trash2 class="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      <!-- ============ TAB 3: Matriks Kehadiran (1–16) ============ -->
       <div v-if="activeTab === 'matrix'" class="space-y-4">
         <Card>
           <template #header>
-            <div class="flex items-center justify-between">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800">
                   Matriks Presensi Mahasiswa (Pertemuan 1 s.d. 16)
@@ -182,7 +529,7 @@ onMounted(() => {
                 </p>
               </div>
 
-              <div class="flex items-center gap-2 text-2xs">
+              <div class="flex items-center gap-2 text-2xs flex-wrap">
                 <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500" /> Hadir (H)</span>
                 <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500" /> Izin (I)</span>
                 <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-500" /> Sakit (S)</span>
@@ -281,120 +628,6 @@ onMounted(() => {
           </div>
         </Card>
       </div>
-
-      <!-- TAB 2: Berita Acara Perkuliahan (BAP) -->
-      <div v-if="activeTab === 'bap'" class="space-y-4">
-        <div class="grid grid-cols-1 gap-3.5">
-          <Card
-            v-for="session in sessions"
-            :key="session.id"
-            class="hover:border-brand-300 transition-colors"
-          >
-            <div class="p-4 space-y-3">
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
-                <div class="flex items-center gap-2.5">
-                  <span class="font-mono font-extrabold text-sm text-brand-900 bg-brand-50 px-2.5 py-1 rounded-lg border border-brand-200">
-                    Pertemuan {{ session.meeting_number }}
-                  </span>
-                  <div>
-                    <h4 class="font-bold text-sm text-slate-900">{{ session.topic || 'Belum ada topik bahasan' }}</h4>
-                    <span class="text-2xs text-slate-400 font-medium">
-                      {{ session.session_date }} · {{ session.start_time || '08:00' }} - {{ session.end_time || '09:40' }}
-                    </span>
-                  </div>
-                </div>
-
-                <div class="flex items-center gap-1.5">
-                  <TeachingMethodBadge :method="session.teaching_method" size="sm" />
-                  <Badge :variant="session.status === 'open' ? 'success' : (session.status === 'closed' ? 'neutral' : 'info')" size="sm">
-                    {{ session.status_label || session.status }}
-                  </Badge>
-                </div>
-              </div>
-
-              <!-- BAP Notes -->
-              <div class="bg-slate-50 rounded-lg p-3 border border-slate-200/80 text-xs">
-                <span class="font-bold text-2xs uppercase tracking-wider text-slate-500 block mb-1">
-                  Catatan Berita Acara (BAP):
-                </span>
-                <p class="text-slate-700 leading-relaxed whitespace-pre-line">
-                  {{ session.notes || 'Belum ada catatan berita acara perkuliahan untuk pertemuan ini.' }}
-                </p>
-              </div>
-
-              <!-- Footer Details & Actions -->
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 text-2xs text-slate-500">
-                <div>
-                  <span>Pengajar: <strong>{{ session.lecturer?.full_name || '-' }}</strong></span>
-                  <span v-if="session.room" class="ml-3">Ruangan: <strong>{{ session.room.name }} ({{ session.room.code }})</strong></span>
-                </div>
-
-                <div class="flex items-center gap-2">
-                  <Button variant="outline" size="xs" @click="openQuickCheckIn(session)">
-                    <QrCode class="w-3.5 h-3.5 mr-1" />
-                    <span>Presensi Mandiri</span>
-                  </Button>
-                  <Button variant="primary" size="xs" @click="openBatchAttendance(session)">
-                    <CheckCircle class="w-3.5 h-3.5 mr-1" />
-                    <span>Input Presensi</span>
-                  </Button>
-                  <Button variant="ghost" size="xs" @click="openEditSessionModal(session)">
-                    <Edit class="w-3.5 h-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="xs" class="text-rose-600 hover:bg-rose-50" @click="confirmDeleteSession(session)">
-                    <Trash2 class="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </Card>
-        </div>
-      </div>
-
-      <!-- TAB 3: Daftar Sesi Pertemuan -->
-      <div v-if="activeTab === 'sessions'" class="space-y-4">
-        <div class="flex justify-between items-center bg-white p-3 border border-slate-200 rounded-lg text-xs">
-          <span class="text-slate-600 font-medium">Total Sesi Pertemuan: <strong>{{ sessions.length }} / 16</strong></span>
-          <Button variant="primary" size="xs" @click="openCreateSessionModal">
-            <Plus class="w-3.5 h-3.5 mr-1" />
-            <span>Tambah Pertemuan Baru</span>
-          </Button>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-          <Card
-            v-for="session in sessions"
-            :key="session.id"
-            class="hover:shadow-sm transition-shadow"
-          >
-            <div class="p-4 space-y-3">
-              <div class="flex items-center justify-between">
-                <span class="font-mono font-bold text-xs text-brand-900 bg-brand-50 px-2 py-0.5 rounded border border-brand-200">
-                  P{{ session.meeting_number }}
-                </span>
-                <Badge :variant="session.status === 'open' ? 'success' : 'neutral'" size="sm">
-                  {{ session.status_label || session.status }}
-                </Badge>
-              </div>
-
-              <div>
-                <h4 class="font-bold text-xs text-slate-900 line-clamp-1">{{ session.topic || 'Pertemuan ' + session.meeting_number }}</h4>
-                <span class="text-2xs text-slate-400 font-mono">{{ session.session_date }}</span>
-              </div>
-
-              <div class="pt-2 border-t border-slate-100 flex items-center justify-between text-2xs">
-                <Button variant="outline" size="xs" @click="openQuickCheckIn(session)">
-                  <QrCode class="w-3 h-3 mr-1" />
-                  <span>Token</span>
-                </Button>
-                <Button variant="primary" size="xs" @click="openBatchAttendance(session)">
-                  <span>Presensi</span>
-                </Button>
-              </div>
-            </div>
-          </Card>
-        </div>
-      </div>
     </div>
 
     <!-- Modals -->
@@ -419,6 +652,7 @@ onMounted(() => {
     <BatchAttendanceModal
       :open="batchModalOpen"
       :session="activeSessionForAction"
+      :class-name="academicClass?.name || undefined"
       @update:open="batchModalOpen = $event"
       @saved="loadData"
     />

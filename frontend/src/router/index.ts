@@ -164,6 +164,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Kelompok Mata Kuliah', permission: 'courses.view' },
       },
       {
+        path: 'courses/survey-templates',
+        name: 'courses.survey-templates',
+        component: () => import('@/pages/courses/survey-templates/Index.vue'),
+        meta: { title: 'Template Survey Evaluasi', permission: 'courses.view' },
+      },
+      {
+        path: 'courses/survey-templates/:id',
+        name: 'courses.survey-templates.show',
+        component: () => import('@/pages/courses/survey-templates/Show.vue'),
+        meta: { title: 'Builder Template Survey', permission: 'courses.view' },
+      },
+      {
         path: 'courses/:id',
         name: 'courses.show',
         component: () => import('@/pages/courses/Show.vue'),

@@ -1,0 +1,1 @@
+import{ac as r}from"./index-CFxbdIWE.js";const s={list(e){return r.get("/krs-packages",e)},get(e){return r.get(`/krs-packages/${e}`)},create(e){return r.post("/krs-packages",e)},update(e,t){return r.put(`/krs-packages/${e}`,t)},delete(e){return r.delete(`/krs-packages/${e}`)}};export{s as k};

@@ -1,0 +1,6 @@
+import{a7 as c,d as l,o as t,c as o,a as s,b as i,D as d,m as r,t as n,ad as m,e as p}from"./index-CFxbdIWE.js";/**
+ * @license lucide-vue-next v0.475.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const u=c("InboxIcon",[["polyline",{points:"22 12 16 12 14 15 10 15 8 12 2 12",key:"o97t9d"}],["path",{d:"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z",key:"oot6mr"}]]),x={class:"flex flex-col items-center justify-center p-8 sm:p-12 text-center"},f={class:"w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3 border border-slate-200"},h={class:"text-sm font-semibold text-slate-800 mb-1"},_={class:"text-xs text-slate-500 max-w-sm mb-4 leading-relaxed"},b={key:0,class:"mt-1"},v=l({__name:"EmptyState",props:{title:{default:"Tidak ada data"},description:{default:"Belum ada data yang tersedia untuk ditampilkan."},icon:{}},setup(e){return(a,k)=>(t(),o("div",x,[s("div",f,[(t(),i(d(e.icon||r(u)),{class:"w-6 h-6 stroke-[1.5]"}))]),s("h4",h,n(e.title),1),s("p",_,n(e.description),1),a.$slots.action?(t(),o("div",b,[m(a.$slots,"action")])):p("",!0)]))}});export{v as _};

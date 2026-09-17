@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Edit3, RefreshCw, Trash2, Mail, Phone } from 'lucide-vue-next'
+import { ArrowLeft, Edit3, RefreshCw, Trash2, Mail, Phone, KeyRound, UserPlus, ShieldCheck, AlertCircle } from 'lucide-vue-next'
 import { usePermissions } from '@/composables/usePermissions'
 import type { Lecturer } from '@/types/lecturer'
 import Avatar from '@/components/ui/Avatar.vue'
@@ -15,6 +15,8 @@ defineProps<Props>()
 const emit = defineEmits<{
   (e: 'change-status'): void
   (e: 'delete'): void
+  (e: 'create-account'): void
+  (e: 'reset-password'): void
 }>()
 
 const { can } = usePermissions()
@@ -38,6 +40,24 @@ const { can } = usePermissions()
               {{ lecturer.full_name }}<span v-if="lecturer.academic_degree">, {{ lecturer.academic_degree }}</span>
             </h1>
             <LecturerStatusBadge :status="lecturer.status" size="xs" />
+
+            <!-- Account Status Badge -->
+            <span
+              v-if="lecturer.user"
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"
+              title="Akun portal dosen aktif"
+            >
+              <ShieldCheck class="w-3 h-3 text-emerald-600" />
+              Akun Aktif
+            </span>
+            <span
+              v-else
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+              title="Belum memiliki akun login portal"
+            >
+              <AlertCircle class="w-3 h-3 text-amber-600" />
+              Belum Punya Akun
+            </span>
           </div>
 
           <div class="flex flex-wrap items-center gap-y-1 gap-x-3 text-xs text-slate-500">
@@ -78,6 +98,29 @@ const { can } = usePermissions()
             <span class="hidden sm:inline">Daftar</span>
           </Button>
         </router-link>
+
+        <!-- Account Action: Ganti Password or Buat Akun -->
+        <Button
+          v-if="lecturer.user"
+          variant="outline"
+          size="sm"
+          class="border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-medium"
+          @click="emit('reset-password')"
+        >
+          <KeyRound class="w-3.5 h-3.5 text-emerald-600" />
+          <span>Ganti Password</span>
+        </Button>
+
+        <Button
+          v-else
+          variant="primary"
+          size="sm"
+          class="bg-emerald-700 hover:bg-emerald-800 text-white font-medium shadow-2xs"
+          @click="emit('create-account')"
+        >
+          <UserPlus class="w-3.5 h-3.5" />
+          <span>Buat Akun Portal</span>
+        </Button>
 
         <Button
           v-if="can('lecturers.change_status')"

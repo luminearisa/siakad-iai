@@ -20,6 +20,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('students/{student}/enrollments', [EnrollmentController::class, 'storeStudentEnrollment']);
 
     // Items (Classes in KRS)
+    Route::get('enrollments/{enrollment}/available-classes', [EnrollmentController::class, 'availableClasses'])->middleware('permission:enrollments.view');
     Route::get('enrollments/{enrollment}/items', [EnrollmentItemController::class, 'index'])->middleware('permission:enrollments.view');
     Route::post('enrollments/{enrollment}/items', [EnrollmentItemController::class, 'store']);
     Route::delete('enrollments/{enrollment}/items/{item}', [EnrollmentItemController::class, 'destroy']);

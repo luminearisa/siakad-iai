@@ -63,6 +63,33 @@ export interface SessionStudentItem {
   notes?: string
 }
 
+/**
+ * One row of the lecturer's attendance sheet: the class roster merged with any
+ * records already saved for the session, so every enrolled student is present
+ * even when the meeting was opened before they enrolled.
+ */
+export interface AttendanceSheetRow {
+  /** Null until the row has been saved for the first time. */
+  id: number | null
+  teaching_session_id: number
+  student_id: number
+  academic_class_id: number
+  status: AttendanceStatusCode
+  status_label?: string
+  status_code?: string
+  notes?: string | null
+  attachment_path?: string | null
+  recorded_by?: number | null
+  recorded_at?: string | null
+  /** False when this student has no saved record yet for this session. */
+  is_recorded: boolean
+  /** False for students recorded earlier but no longer on the class roster. */
+  is_enrolled: boolean
+  student?: Student
+  created_at?: string | null
+  updated_at?: string | null
+}
+
 export interface BatchAttendancePayload {
   attendances: SessionStudentItem[]
 }

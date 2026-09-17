@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ArrowLeft, Plus, MoreVertical, Trash2, Check, X } from 'lucide-vue-next'
 import { curriculumService } from '@/services/api/curriculum'
@@ -11,6 +11,7 @@ import PageContainer from '@/components/data-display/PageContainer.vue'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
+import Select from '@/components/ui/Select.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -22,6 +23,14 @@ const courses = ref<Course[]>([])
 const addSubjectModalOpen = ref<boolean>(false)
 const selectedSemesterId = ref<number | null>(null)
 const savingSubject = ref<boolean>(false)
+
+// Daftar mata kuliah bisa sangat panjang -> pakai search select.
+const courseOptions = computed(() =>
+  courses.value.map((c) => ({
+    value: c.id as number,
+    label: `${c.code} — ${c.name} (${c.credits} SKS)`,
+  })),
+)
 
 const subjectForm = reactive({
   course_id: '' as any,
@@ -326,14 +335,12 @@ onMounted(() => {
             <label class="block font-semibold text-slate-700 mb-1.5">
               Pilih Mata Kuliah <span class="text-rose-500">*</span>
             </label>
-            <select
+            <Select
               v-model="subjectForm.course_id"
-              class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600 outline-none"
-            >
-              <option v-for="c in courses" :key="c.id" :value="c.id">
-                {{ c.code }} — {{ c.name }} ({{ c.credits }} SKS)
-              </option>
-            </select>
+              :options="courseOptions"
+              placeholder="Pilih Mata Kuliah"
+              search-placeholder="Cari kode / nama mata kuliah..."
+            />
           </div>
 
           <div class="grid grid-cols-2 gap-3">
