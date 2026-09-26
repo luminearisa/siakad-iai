@@ -38,9 +38,9 @@ class EnrollmentService
         return $this->addEnrollmentItemAction->execute($enrollment, $classId, $notes, $bypassCurriculum);
     }
 
-    public function removeItem(StudentEnrollment $enrollment, StudentEnrollmentItem $item): bool
+    public function removeItem(StudentEnrollment $enrollment, StudentEnrollmentItem $item, ?string $reason = null): bool
     {
-        return $this->removeEnrollmentItemAction->execute($enrollment, $item);
+        return $this->removeEnrollmentItemAction->execute($enrollment, $item, $reason);
     }
 
     public function submit(StudentEnrollment $enrollment): StudentEnrollment

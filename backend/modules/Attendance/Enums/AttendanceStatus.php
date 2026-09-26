@@ -28,4 +28,25 @@ enum AttendanceStatus: string
             self::ABSENT => 'A',
         };
     }
+
+    public static function values(): array
+    {
+        return array_column(self::cases(), 'value');
+    }
+
+    /**
+     * Izin/Sakit/Alpa tidak boleh tercatat tanpa dasar — keterangan wajib diisi.
+     */
+    public function requiresNote(): bool
+    {
+        return $this !== self::PRESENT;
+    }
+
+    /**
+     * Status yang dihitung hadir dalam persentase kelayakan ujian.
+     */
+    public function countsAsAttended(): bool
+    {
+        return $this !== self::ABSENT;
+    }
 }

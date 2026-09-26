@@ -21,6 +21,7 @@ class User extends Authenticatable
         'email',
         'password',
         'status',
+        'must_change_password',
     ];
 
     protected $hidden = [
@@ -33,7 +34,16 @@ class User extends Authenticatable
         return [
             'status' => UserStatus::class,
             'password' => 'hashed',
+            'must_change_password' => 'boolean',
         ];
+    }
+
+    /**
+     * Check if the user must rotate a system-generated password.
+     */
+    public function mustChangePassword(): bool
+    {
+        return (bool) $this->must_change_password;
     }
 
     /**

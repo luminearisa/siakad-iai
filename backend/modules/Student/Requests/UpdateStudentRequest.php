@@ -15,18 +15,11 @@ class UpdateStudentRequest extends FormRequest
 
     public function rules(): array
     {
-        $id = $this->route('student')?->id ?? $this->route('student');
-
         return [
-            'user_id' => ['nullable', 'integer', 'exists:users,id'],
+            // student_number (NIM) and user_id are deliberately absent: the NIM is the
+            // identity anchor and the account link is managed only by the dedicated
+            // create-account / reset-password endpoints.
             'study_program_id' => ['sometimes', 'required', 'integer', 'exists:study_programs,id'],
-            'student_number' => [
-                'sometimes',
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('students', 'student_number')->ignore($id),
-            ],
             'national_student_number' => ['nullable', 'string', 'max:50'],
             'national_id' => ['nullable', 'string', 'max:50'],
             'mother_name' => ['nullable', 'string', 'max:255'],

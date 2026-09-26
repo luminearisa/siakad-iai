@@ -8,10 +8,13 @@ interface Props {
   enrollment: StudentEnrollment
   items: StudentEnrollmentItem[]
   loading?: boolean
+  /** Sembunyikan aksi hapus — dipakai untuk daftar riwayat batal-tambah. */
+  readonly?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   loading: false,
+  readonly: false,
 })
 
 const emit = defineEmits<{
@@ -19,12 +22,44 @@ const emit = defineEmits<{
 }>()
 
 const isEditable = computed(() => {
+  if (props.readonly) return false
   return props.enrollment.status === 'draft' || props.enrollment.status === 'revision_required'
 })
+
+/** Label + warna badge mengikuti status baris KRS (jejak batal-tambah). */
+function statusLabel(item: StudentEnrollmentItem): string {
+  switch (item.status) {
+    case 'dropped':
+      return 'Batal-Tambah'
+    case 'rejected':
+      return 'Ditolak'
+    default:
+      return 'Terdaftar'
+  }
+}
+
+function statusVariant(item: StudentEnrollmentItem): 'success' | 'danger' | 'warning' {
+  switch (item.status) {
+    case 'dropped':
+      return 'danger'
+    case 'rejected':
+      return 'warning'
+    default:
+      return 'success'
+  }
+}
 
 function formatTime(timeStr?: string): string {
   if (!timeStr) return ''
   return timeStr.slice(0, 5)
+}
+
+/** Tanggal singkat berbahasa Indonesia untuk stempel waktu batal-tambah. */
+function formatDateShort(dateStr?: string | null): string {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function getDayLabel(day?: string): string {
@@ -127,9 +162,15 @@ function getDayLabel(day?: string): string {
 
             <!-- Status -->
             <td class="py-2.5 px-3 text-center">
-              <Badge variant="success" size="xs" dot>
-                Terdaftar
+              <Badge :variant="statusVariant(item)" size="xs" dot>
+                {{ statusLabel(item) }}
               </Badge>
+              <span
+                v-if="item.status === 'dropped' && item.finalized_at"
+                class="block text-3xs text-slate-400 font-mono mt-0.5"
+              >
+                {{ formatDateShort(item.finalized_at) }}
+              </span>
             </td>
 
             <!-- Aksi Hapus -->
@@ -138,7 +179,7 @@ function getDayLabel(day?: string): string {
                 type="button"
                 :disabled="loading"
                 class="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer disabled:opacity-50"
-                title="Hapus dari KRS"
+                title="Batalkan mata kuliah dari KRS"
                 @click="emit('remove-item', item)"
               >
                 <Trash2 class="w-3.5 h-3.5" />
@@ -169,6 +210,14 @@ function getDayLabel(day?: string): string {
               <span>•</span>
               <span class="font-bold text-slate-700 bg-slate-100 px-1 rounded">Kls {{ item.academic_class?.section || 'A' }}</span>
             </div>
+            <div class="flex items-center gap-1.5 mt-1">
+              <Badge :variant="statusVariant(item)" size="xs" dot>
+                {{ statusLabel(item) }}
+              </Badge>
+              <span v-if="item.status === 'dropped' && item.finalized_at" class="text-3xs text-slate-400 font-mono">
+                {{ formatDateShort(item.finalized_at) }}
+              </span>
+            </div>
           </div>
 
           <button
@@ -176,7 +225,7 @@ function getDayLabel(day?: string): string {
             type="button"
             :disabled="loading"
             class="p-1.5 rounded text-rose-500 hover:bg-rose-50"
-            title="Hapus dari KRS"
+            title="Batalkan mata kuliah dari KRS"
             @click="emit('remove-item', item)"
           >
             <Trash2 class="w-4 h-4" />

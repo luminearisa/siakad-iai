@@ -23,7 +23,8 @@ class StudentController extends Controller
     use HasApiResponse;
 
     public function __construct(
-        protected StudentService $studentService
+        protected StudentService $studentService,
+        protected \Modules\Student\Actions\ProvisionStudentAccountAction $provisionAccount
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -53,7 +54,11 @@ class StudentController extends Controller
         return $this->successResponse(
             data: new StudentResource($student),
             message: 'Student created successfully.',
-            code: 201
+            code: 201,
+            // Shown exactly once; the operator must hand it to the student.
+            meta: $this->studentService->generatedPassword
+                ? ['generated_password' => $this->studentService->generatedPassword]
+                : null
         );
     }
 
@@ -132,18 +137,16 @@ class StudentController extends Controller
         }
 
         $validated = $request->validate([
-            'email' => 'required|email|unique:users,email',
-            'password' => 'required|string|min:6',
+            'email' => 'required|email|max:255',
+            'password' => 'required|string|min:8',
         ]);
 
-        $user = \Modules\Identity\Models\User::create([
-            'name' => $student->full_name,
-            'email' => $validated['email'],
-            'password' => \Illuminate\Support\Facades\Hash::make($validated['password']),
-            'status' => \Modules\Identity\Enums\UserStatus::ACTIVE,
-        ]);
-
-        $user->assignRole('mahasiswa');
+        $user = $this->provisionAccount->execute(
+            email: $validated['email'],
+            fullName: $student->full_name,
+            password: $validated['password'],
+            student: $student
+        );
         $student->update(['user_id' => $user->id]);
 
         \Modules\Audit\Services\AuditService::log(
@@ -164,32 +167,21 @@ class StudentController extends Controller
     public function resetPassword(Request $request, Student $student): JsonResponse
     {
         $validated = $request->validate([
-            'password' => 'required|string|min:6',
+            'password' => 'required|string|min:8',
         ]);
 
         if (!$student->user_id || !$student->user) {
-            // If student doesn't have an account yet, create it on the fly
-            $email = $student->email ?? ($student->student_number . '@student.ac.id');
-            $existingUser = \Modules\Identity\Models\User::where('email', $email)->first();
-            if ($existingUser) {
-                $user = $existingUser;
-                $user->update([
-                    'password' => \Illuminate\Support\Facades\Hash::make($validated['password']),
-                    'status' => \Modules\Identity\Enums\UserStatus::ACTIVE,
-                ]);
-            } else {
-                $user = \Modules\Identity\Models\User::create([
-                    'name' => $student->full_name,
-                    'email' => $email,
-                    'password' => \Illuminate\Support\Facades\Hash::make($validated['password']),
-                    'status' => \Modules\Identity\Enums\UserStatus::ACTIVE,
-                ]);
-                $user->assignRole('mahasiswa');
-            }
+            $user = $this->provisionAccount->execute(
+                email: $this->provisionAccount->deriveEmail($student),
+                fullName: $student->full_name,
+                password: $validated['password'],
+                student: $student
+            );
             $student->update(['user_id' => $user->id]);
         } else {
             $student->user->update([
                 'password' => \Illuminate\Support\Facades\Hash::make($validated['password']),
+                'must_change_password' => false,
             ]);
         }
 

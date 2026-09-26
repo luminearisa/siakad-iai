@@ -7,7 +7,6 @@ import type { Semester } from '@/types/academic'
 import PageContainer from '@/components/data-display/PageContainer.vue'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
-import Badge from '@/components/ui/Badge.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import ConfirmModal from '@/components/feedback/ConfirmModal.vue'
 
@@ -16,11 +15,16 @@ const loading = ref<boolean>(false)
 const semesters = ref<Semester[]>([])
 const search = ref<string>('')
 const perPage = ref<number>(10)
+const activatingId = ref<number | null>(null)
 
 // Delete Modal State
 const deleteModalOpen = ref<boolean>(false)
 const deleting = ref<boolean>(false)
 const itemToDelete = ref<Semester | null>(null)
+
+function isActive(item: Semester): boolean {
+  return item.status === 'active' || item.status === 'Aktif'
+}
 
 async function loadSemesters() {
   loading.value = true
@@ -57,6 +61,21 @@ function formatDate(dateStr?: string): string {
   }
 }
 
+async function handleSetActive(item: Semester) {
+  if (isActive(item) || activatingId.value !== null) return
+
+  activatingId.value = item.id
+  try {
+    const res = await academicService.setActiveSemester(item.id)
+    toast.success(res.message || `Periode akademik ${item.name} berhasil diaktifkan.`)
+    await loadSemesters()
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || err.message || 'Gagal mengaktifkan periode akademik.')
+  } finally {
+    activatingId.value = null
+  }
+}
+
 function openDeleteModal(item: Semester) {
   itemToDelete.value = item
   deleteModalOpen.value = true
@@ -72,7 +91,9 @@ async function handleDelete() {
     itemToDelete.value = null
     await loadSemesters()
   } catch (err: any) {
-    toast.error(err.message || 'Gagal menghapus periode akademik.')
+    toast.error(
+      err.response?.data?.message || err.message || 'Gagal menghapus periode akademik.'
+    )
   } finally {
     deleting.value = false
   }
@@ -208,13 +229,26 @@ onMounted(() => {
                   {{ item.total_teaching_weeks ?? 16 }}
                 </td>
                 <td class="py-3 px-4 text-center">
-                  <Badge
-                    :variant="item.status === 'active' || item.status === 'Aktif' ? 'success' : 'neutral'"
-                    size="xs"
-                    dot
+                  <button
+                    type="button"
+                    :disabled="isActive(item) || activatingId !== null"
+                    :class="[
+                      'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-3xs font-semibold transition-all border',
+                      isActive(item)
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-2xs cursor-default'
+                        : 'bg-slate-100 text-slate-600 border-slate-200 cursor-pointer hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed'
+                    ]"
+                    :title="isActive(item) ? 'Periode Akademik Aktif Saat Ini' : 'Klik untuk jadikan Periode Akademik Aktif'"
+                    @click="handleSetActive(item)"
                   >
-                    {{ item.status === 'active' || item.status === 'Aktif' ? 'Aktif' : 'Nonaktif' }}
-                  </Badge>
+                    <span
+                      :class="[
+                        'w-1.5 h-1.5 rounded-full',
+                        isActive(item) ? 'bg-emerald-500' : 'bg-slate-400'
+                      ]"
+                    />
+                    {{ activatingId === item.id ? 'Memproses...' : (isActive(item) ? 'Aktif' : 'Nonaktif') }}
+                  </button>
                 </td>
                 <td class="py-3 px-4 text-center">
                   <div class="flex items-center justify-center gap-1">
@@ -250,7 +284,7 @@ onMounted(() => {
     <ConfirmModal
       :open="deleteModalOpen"
       title="Hapus Periode Akademik"
-      :message="`Apakah Anda yakin ingin menghapus ${itemToDelete?.name}? Seluruh jadwal dan perkuliahan di semester ini akan terpengaruh.`"
+      :message="`Apakah Anda yakin ingin menghapus ${itemToDelete?.name}? Periode yang sedang aktif atau masih dipakai (KRS, kelas, jadwal, presensi, skripsi, yudisium, MBKM) tidak dapat dihapus.`"
       confirm-text="Ya, Hapus"
       variant="danger"
       :loading="deleting"

@@ -402,7 +402,7 @@ class EnrollmentController extends Controller
         }
 
         // Ambil batas SKS default dari pengaturan sistem (bukan hardcode)
-        $defaultMaxCredits = (int) $this->settingService->get('max_sks', 24);
+        $defaultMaxCredits = $this->validationService->globalMaxSks();
 
         // Hanya generate untuk mahasiswa yang berstatus AKTIF
         $students = Student::where('status', StudentStatus::ACTIVE)->get();
@@ -410,6 +410,10 @@ class EnrollmentController extends Controller
         $skipped  = 0;
 
         foreach ($students as $student) {
+            // Per-student quota: the IPS tier of the curriculum's credit_limits when
+            // one is configured, otherwise the global max_sks setting.
+            $studentMaxCredits = $this->validationService->getMaxCredits($student);
+
             [$enrollment, $wasCreated] = [
                 StudentEnrollment::firstOrCreate(
                     [
@@ -419,7 +423,7 @@ class EnrollmentController extends Controller
                     [
                         'status'       => 'draft',
                         'total_credits' => 0,
-                        'max_credits'  => $defaultMaxCredits,
+                        'max_credits'  => $studentMaxCredits,
                     ]
                 ),
                 false,
@@ -507,6 +511,15 @@ class EnrollmentController extends Controller
             if (!$student || $enrollment->student_id !== $student->id) {
                 return $this->errorResponse('Unauthorized: Anda hanya bisa memuat paket KRS ke KRS milik Anda sendiri.', 403);
             }
+        }
+
+        // A plain lecturer may only bulk-load a package into the KRS of the students
+        // they actually advise — the very same guard that protects approve/reject/
+        // request-revision. Without it any `dosen` could inject a package into an
+        // arbitrary student's KRS, and because the package loader skips the
+        // curriculum-match rule that injection would not even be curriculum-checked.
+        if ($denied = $this->denyUnlessOwnAdvisee($request, $enrollment)) {
+            return $denied;
         }
 
         $validated = $request->validate([

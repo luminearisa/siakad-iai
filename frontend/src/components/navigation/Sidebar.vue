@@ -39,6 +39,10 @@ import {
   CreditCard,
   ListChecks,
   BadgeCheck,
+  Compass,
+  Medal,
+  ClipboardList,
+  FileBarChart2,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -79,6 +83,10 @@ const iconMap: Record<string, any> = {
   CreditCard,
   ListChecks,
   BadgeCheck,
+  Compass,
+  Medal,
+  ClipboardList,
+  FileBarChart2,
 }
 
 function getIcon(name: string) {

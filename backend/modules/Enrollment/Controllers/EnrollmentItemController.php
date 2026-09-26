@@ -75,7 +75,13 @@ class EnrollmentItemController extends Controller
             return $this->errorResponse('Unauthorized to update enrollment.', 403);
         }
 
-        $this->enrollmentService->removeItem($enrollment, $item);
+        // `reason` is stored on the batal-tambah trail so a withdrawal from an
+        // approved/locked KRS is explainable afterwards.
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $this->enrollmentService->removeItem($enrollment, $item, $validated['reason'] ?? null);
 
         return $this->successResponse(
             data: null,

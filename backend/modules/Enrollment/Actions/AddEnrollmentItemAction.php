@@ -7,6 +7,7 @@ use Illuminate\Validation\ValidationException;
 use Modules\Audit\Services\AuditService;
 use Modules\Class\Models\AcademicClass;
 use Modules\Enrollment\Enums\EnrollmentItemStatus;
+use Modules\Enrollment\Models\EnrollmentStatusHistory;
 use Modules\Enrollment\Models\StudentEnrollment;
 use Modules\Enrollment\Models\StudentEnrollmentItem;
 use Modules\Enrollment\Services\EnrollmentValidationService;
@@ -37,13 +38,32 @@ class AddEnrollmentItemAction
 
             $credits = (int) ($class->course?->credits ?? 2);
 
-            $item = $enrollment->items()->create([
-                'class_id' => $class->id,
-                'course_id' => $class->course_id,
-                'credits' => $credits,
-                'status' => EnrollmentItemStatus::ENROLLED,
-                'notes' => $notes,
-            ]);
+            // A class that was previously cancelled (draft) or dropped (batal-tambah)
+            // keeps its row as an audit trail, and (enrollment_id, class_id) is unique,
+            // so re-taking it reactivates the existing row instead of inserting a new one.
+            $item = $enrollment->items()
+                ->where('class_id', $class->id)
+                ->whereIn('status', [EnrollmentItemStatus::DROPPED->value, EnrollmentItemStatus::CANCELLED->value])
+                ->first();
+
+            if ($item) {
+                $previousStatus = $item->status instanceof EnrollmentItemStatus ? $item->status->value : (string) $item->status;
+                $item->update([
+                    'course_id' => $class->course_id,
+                    'credits' => $credits,
+                    'status' => EnrollmentItemStatus::ENROLLED,
+                    'notes' => $notes ?? $item->notes,
+                ]);
+            } else {
+                $previousStatus = null;
+                $item = $enrollment->items()->create([
+                    'class_id' => $class->id,
+                    'course_id' => $class->course_id,
+                    'credits' => $credits,
+                    'status' => EnrollmentItemStatus::ENROLLED,
+                    'notes' => $notes,
+                ]);
+            }
 
             // Increment enrolled_count atomically
             $class->increment('enrolled_count');
@@ -51,12 +71,24 @@ class AddEnrollmentItemAction
             // Recalculate total credits on the enrollment header
             $enrollment->recalculateCredits();
 
+            if ($previousStatus !== null) {
+                EnrollmentStatusHistory::record(
+                    enrollment: $enrollment,
+                    action: 'item_reactivated',
+                    fromStatus: $previousStatus,
+                    toStatus: EnrollmentItemStatus::ENROLLED->value,
+                    notes: 'Mata kuliah diambil kembali setelah pembatalan (batal-tambah).',
+                    item: $item,
+                    meta: ['class_id' => $class->id, 'course_id' => $class->course_id, 'credits' => $credits],
+                );
+            }
+
             AuditService::log(
-                action: 'item_added',
+                action: $previousStatus !== null ? 'item_reactivated' : 'item_added',
                 module: 'Enrollment',
                 description: "Class {$class->code} ({$credits} SKS) added to KRS #{$enrollment->id}.",
                 entity: $item,
-                oldValues: null,
+                oldValues: $previousStatus !== null ? ['status' => $previousStatus] : null,
                 newValues: $item->toArray()
             );
 

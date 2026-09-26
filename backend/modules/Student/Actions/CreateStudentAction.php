@@ -2,36 +2,39 @@
 
 namespace Modules\Student\Actions;
 
-use Illuminate\Support\Facades\Hash;
 use Modules\Audit\Services\AuditService;
-use Modules\Identity\Enums\UserStatus;
-use Modules\Identity\Models\User;
 use Modules\Student\Enums\StudentStatus;
 use Modules\Student\Models\Student;
 
 class CreateStudentAction
 {
+    public ?string $generatedPassword = null;
+
+    public function __construct(
+        protected ProvisionStudentAccountAction $provisionAccount
+    ) {}
+
     public function execute(array $data): Student
     {
-        $studentData = collect($data)->except(['families', 'educations'])->toArray();
+        $studentData = collect($data)->except(['families', 'educations', 'user_id'])->toArray();
 
         if (!isset($studentData['status'])) {
             $studentData['status'] = StudentStatus::ACTIVE;
         }
 
-        // Automatically provision User account with role 'mahasiswa' if not already linked
-        if (empty($studentData['user_id']) && !empty($studentData['email'])) {
-            $user = User::firstOrCreate(
-                ['email' => $studentData['email']],
-                [
-                    'name' => $studentData['full_name'] ?? 'Mahasiswa',
-                    'password' => Hash::make('password123'),
-                    'status' => UserStatus::ACTIVE,
-                ]
-            );
-            $user->assignRole('mahasiswa');
-            $studentData['user_id'] = $user->id;
+        // Every student always ends up with a login account; when no email is
+        // supplied one is derived from the NIM so the record is never orphaned.
+        if (empty($studentData['email'])) {
+            $studentData['email'] = $studentData['student_number'] . '@' . ProvisionStudentAccountAction::DEFAULT_EMAIL_DOMAIN;
         }
+
+        $user = $this->provisionAccount->execute(
+            email: $studentData['email'],
+            fullName: $studentData['full_name'] ?? 'Mahasiswa'
+        );
+
+        $this->generatedPassword = $this->provisionAccount->generatedPassword;
+        $studentData['user_id'] = $user->id;
 
         $student = Student::create($studentData);
 

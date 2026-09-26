@@ -14,6 +14,7 @@ class UserResource extends JsonResource
             'name' => $this->name,
             'email' => $this->email,
             'status' => $this->status instanceof \BackedEnum ? $this->status->value : $this->status,
+            'must_change_password' => (bool) $this->must_change_password,
             'roles' => RoleResource::collection($this->whenLoaded('roles')),
             'role_names' => $this->roles->pluck('name')->values(),
             'permissions' => $this->allPermissions()->map(fn ($p) => [

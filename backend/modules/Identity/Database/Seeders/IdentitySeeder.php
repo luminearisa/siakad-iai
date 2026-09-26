@@ -129,6 +129,34 @@ class IdentitySeeder extends Seeder
             // Audit permissions
             ['name' => 'audit.view', 'display_name' => 'View Audit Logs', 'group' => 'audit', 'description' => 'View system audit logs'],
 
+            // MBKM (Merdeka Belajar Kampus Merdeka) permissions
+            ['name' => 'mbkm.manage', 'display_name' => 'Manage MBKM', 'group' => 'mbkm', 'description' => 'Full management of the MBKM module (staff marker)'],
+            ['name' => 'mbkm.manage_study_program', 'display_name' => 'Manage MBKM (Study Program Scope)', 'group' => 'mbkm', 'description' => 'Manage MBKM within own study program scope'],
+            ['name' => 'mbkm.programs.view', 'display_name' => 'View MBKM Programs', 'group' => 'mbkm', 'description' => 'View MBKM programs'],
+            ['name' => 'mbkm.programs.manage', 'display_name' => 'Manage MBKM Programs', 'group' => 'mbkm', 'description' => 'Create, update, publish MBKM programs'],
+            ['name' => 'mbkm.partners.view', 'display_name' => 'View MBKM Partners', 'group' => 'mbkm', 'description' => 'View MBKM partners and cooperation deeds'],
+            ['name' => 'mbkm.partners.manage', 'display_name' => 'Manage MBKM Partners', 'group' => 'mbkm', 'description' => 'Create, update MBKM partners and cooperation deeds'],
+            ['name' => 'mbkm.applications.view', 'display_name' => 'View MBKM Applications', 'group' => 'mbkm', 'description' => 'View MBKM applications'],
+            ['name' => 'mbkm.applications.apply', 'display_name' => 'Apply to MBKM Program', 'group' => 'mbkm', 'description' => 'Submit an MBKM application as a student'],
+            ['name' => 'mbkm.applications.verify', 'display_name' => 'Verify MBKM Applications', 'group' => 'mbkm', 'description' => 'Verify MBKM application documents and requirements'],
+            ['name' => 'mbkm.applications.decide', 'display_name' => 'Decide MBKM Selection', 'group' => 'mbkm', 'description' => 'Score and decide MBKM selection results'],
+            ['name' => 'mbkm.participants.view', 'display_name' => 'View MBKM Participants', 'group' => 'mbkm', 'description' => 'View MBKM participants'],
+            ['name' => 'mbkm.participants.manage', 'display_name' => 'Manage MBKM Participants', 'group' => 'mbkm', 'description' => 'Assign, place, and manage MBKM participants'],
+            ['name' => 'mbkm.logbook.view', 'display_name' => 'View MBKM Logbook', 'group' => 'mbkm', 'description' => 'View MBKM activity logs'],
+            ['name' => 'mbkm.logbook.record', 'display_name' => 'Record MBKM Logbook', 'group' => 'mbkm', 'description' => 'Create and submit MBKM activity logs'],
+            ['name' => 'mbkm.logbook.review', 'display_name' => 'Review MBKM Logbook', 'group' => 'mbkm', 'description' => 'Approve or request revision on MBKM activity logs'],
+            ['name' => 'mbkm.attendance.view', 'display_name' => 'View MBKM Attendance', 'group' => 'mbkm', 'description' => 'View MBKM attendance'],
+            ['name' => 'mbkm.attendance.record', 'display_name' => 'Record MBKM Attendance', 'group' => 'mbkm', 'description' => 'Record MBKM attendance'],
+            ['name' => 'mbkm.assessment.view', 'display_name' => 'View MBKM Assessment', 'group' => 'mbkm', 'description' => 'View MBKM assessments'],
+            ['name' => 'mbkm.assessment.record', 'display_name' => 'Record MBKM Assessment', 'group' => 'mbkm', 'description' => 'Record MBKM assessment scores'],
+            ['name' => 'mbkm.assessment.manage', 'display_name' => 'Manage MBKM Assessment', 'group' => 'mbkm', 'description' => 'Configure MBKM assessment components and weights'],
+            ['name' => 'mbkm.recognition.view', 'display_name' => 'View MBKM Recognition', 'group' => 'mbkm', 'description' => 'View MBKM recognition / credit conversion'],
+            ['name' => 'mbkm.recognition.manage', 'display_name' => 'Manage MBKM Recognition', 'group' => 'mbkm', 'description' => 'Create and update MBKM recognition'],
+            ['name' => 'mbkm.recognition.approve', 'display_name' => 'Approve MBKM Recognition', 'group' => 'mbkm', 'description' => 'Approve and lock MBKM recognition into academic results'],
+            ['name' => 'mbkm.completion.view', 'display_name' => 'View MBKM Completion', 'group' => 'mbkm', 'description' => 'View MBKM completion verification'],
+            ['name' => 'mbkm.completion.verify', 'display_name' => 'Verify MBKM Completion', 'group' => 'mbkm', 'description' => 'Verify and finalize MBKM completion'],
+            ['name' => 'mbkm.reports.view', 'display_name' => 'View MBKM Reports', 'group' => 'mbkm', 'description' => 'View MBKM reports'],
+
             // Identity permissions
             ['name' => 'users.view', 'display_name' => 'View Users', 'group' => 'identity', 'description' => 'View user list'],
             ['name' => 'users.manage', 'display_name' => 'Manage Users', 'group' => 'identity', 'description' => 'Create, update, delete users'],
@@ -232,6 +260,17 @@ class IdentitySeeder extends Seeder
             'grades.view',
             'grades.create',
             'grades.update',
+            // MBKM: lecturer side (supervise, review, assess)
+            'mbkm.programs.view',
+            'mbkm.applications.view',
+            'mbkm.participants.view',
+            'mbkm.logbook.view',
+            'mbkm.logbook.review',
+            'mbkm.attendance.view',
+            'mbkm.assessment.view',
+            'mbkm.assessment.record',
+            'mbkm.recognition.view',
+            'mbkm.completion.view',
         ])->get();
         $dosenRole->permissions()->sync($dosenPermissions->pluck('id'));
 

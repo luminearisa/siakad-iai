@@ -64,6 +64,36 @@ const isKrsNotStarted = computed(() => {
   return new Date() < start
 })
 
+/**
+ * Baris batal-tambah (dropped) tetap dikirim API sebagai jejak audit,
+ * tetapi bukan beban studi: tidak dihitung sebagai mata kuliah yang diambil dan
+ * tidak ditawarkan untuk dihapus ulang.
+ */
+const activeItems = computed(() => {
+  return (enrollment.value?.items || []).filter((item) => !item.status || item.status === 'enrolled')
+})
+
+const droppedItems = computed(() => {
+  return (enrollment.value?.items || []).filter((item) => item.status === 'dropped')
+})
+
+/** Batas SKS yang benar-benar berlaku untuk mahasiswa ini (jenjang IPS / kuota PA). */
+const maxSks = computed<number>(() => {
+  const value = Number(enrollment.value?.max_credits)
+  return Number.isFinite(value) && value > 0 ? value : 24
+})
+
+function formatDateShort(dateStr?: string | null): string {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) return '-'
+  return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function droppedLabel(status?: string): string {
+  return status === 'rejected' ? 'Ditolak saat draf' : 'Batal-tambah (resmi ditarik)'
+}
+
 async function loadDetail() {
   loading.value = true
   try {
@@ -91,7 +121,7 @@ async function handleRemoveItem(itemId: number) {
 
 async function handleSubmitKrs() {
   if (!enrollment.value) return
-  if (!enrollment.value.items || enrollment.value.items.length === 0) {
+  if (activeItems.value.length === 0) {
     toast.error('Silakan ambil minimal 1 mata kuliah sebelum mengajukan KRS.')
     return
   }
@@ -319,7 +349,10 @@ onMounted(() => {
               <div>
                 <div class="text-3xs text-slate-400 font-medium uppercase tracking-wider">SKS Diambil</div>
                 <div class="font-bold text-slate-900 mt-0.5 font-mono" :class="{ 'text-emerald-700 font-bold': (enrollment.total_credits || 0) > 0 }">
-                  {{ enrollment.total_credits || 0 }}/{{ enrollment.max_credits || 24 }} SKS
+                  {{ enrollment.total_credits || 0 }}/{{ maxSks }} SKS
+                </div>
+                <div class="text-3xs text-slate-400 mt-0.5">
+                  Sisa kuota: {{ Math.max(0, maxSks - (enrollment.total_credits || 0)) }} SKS
                 </div>
               </div>
 
@@ -447,7 +480,7 @@ onMounted(() => {
         <div class="p-4 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50">
           <div class="flex items-center gap-2">
             <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800">
-              Daftar Mata Kuliah yang Diambil ({{ enrollment.items?.length || 0 }} Mata Kuliah)
+              Daftar Mata Kuliah yang Diambil ({{ activeItems.length }} Mata Kuliah · {{ enrollment.total_credits || 0 }}/{{ maxSks }} SKS)
             </h3>
           </div>
 
@@ -493,7 +526,7 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 text-slate-700">
-              <tr v-if="!enrollment.items || enrollment.items.length === 0" class="hover:bg-transparent">
+              <tr v-if="activeItems.length === 0" class="hover:bg-transparent">
                 <td colspan="7" class="py-12 text-center text-slate-400 space-y-2">
                   <BookOpen class="w-8 h-8 mx-auto text-slate-300" />
                   <p class="font-medium text-slate-600">Belum ada mata kuliah yang diambil</p>
@@ -506,7 +539,7 @@ onMounted(() => {
                 </td>
               </tr>
               <tr
-                v-for="(item, idx) in enrollment.items"
+                v-for="(item, idx) in activeItems"
                 :key="item.id"
                 class="hover:bg-slate-50/80 transition-colors"
               >
@@ -537,6 +570,56 @@ onMounted(() => {
                   <span v-else-if="!canEditKrs" class="text-3xs text-slate-400">Hanya lihat</span>
                   <span v-else-if="isKrsExpired" class="text-3xs text-amber-600 font-medium">Lewat Deadline</span>
                   <span v-else class="text-3xs text-slate-400">Terkunci</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <!-- Riwayat Batal-Tambah (jejak audit, bukan beban studi) -->
+      <Card v-if="droppedItems.length > 0" class="border border-slate-200/80 shadow-2xs overflow-hidden">
+        <div class="p-4 border-b border-slate-100 bg-slate-50/50">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800">
+            Riwayat Batal-Tambah ({{ droppedItems.length }} Mata Kuliah)
+          </h3>
+          <p class="text-2xs text-slate-500 mt-1">
+            Mata kuliah berikut sudah dibatalkan sehingga tidak lagi dihitung sebagai beban SKS, tidak muncul pada
+            jadwal maupun KHS, dan disimpan permanen sebagai jejak audit akademik.
+          </p>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-slate-100/80 border-b border-slate-200/80 text-slate-600 font-bold uppercase tracking-wider text-3xs">
+                <th class="py-3 px-4">MATA KULIAH</th>
+                <th class="py-3 px-4 text-center w-32">SKS</th>
+                <th class="py-3 px-4 w-40">STATUS</th>
+                <th class="py-3 px-4 w-40 text-center">TANGGAL FINALISASI</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 text-slate-700">
+              <tr v-for="item in droppedItems" :key="item.id" class="hover:bg-slate-50/80 transition-colors">
+                <td class="py-3.5 px-4">
+                  <div class="font-bold text-slate-700 line-through decoration-slate-400">
+                    {{ item.course?.name || item.academic_class?.course?.name || item.academic_class?.name || '-' }}
+                  </div>
+                  <div class="font-mono text-3xs text-slate-500">
+                    {{ item.course?.code || item.academic_class?.course?.code || item.academic_class?.code || '-' }}
+                  </div>
+                </td>
+                <td class="py-3.5 px-4 text-center font-mono font-semibold text-slate-500">{{ item.credits }} SKS</td>
+                <td class="py-3.5 px-4">
+                  <span
+                    class="inline-flex items-center px-2 py-0.5 rounded text-3xs font-bold text-white shadow-2xs"
+                    :class="item.status === 'dropped' ? 'bg-rose-600' : 'bg-amber-500'"
+                  >
+                    {{ droppedLabel(item.status) }}
+                  </span>
+                </td>
+                <td class="py-3.5 px-4 text-center font-mono text-slate-500">
+                  {{ formatDateShort(item.finalized_at) }}
                 </td>
               </tr>
             </tbody>

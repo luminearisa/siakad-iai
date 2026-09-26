@@ -19,6 +19,15 @@ class AcademicYear extends Model
         'status',
     ];
 
+    /**
+     * Tahun ajaran baru selalu nonaktif secara default. Aktivasi adalah tindakan
+     * eksplisit (endpoint set-active) supaya invariant "hanya satu periode aktif"
+     * tidak pernah dilanggar oleh create/update biasa.
+     */
+    protected $attributes = [
+        'status' => 'inactive',
+    ];
+
     protected function casts(): array
     {
         return [

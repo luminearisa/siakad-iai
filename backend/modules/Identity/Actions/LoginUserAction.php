@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Modules\Identity\Enums\UserStatus;
 use Modules\Identity\Models\User;
+use Modules\Student\Enums\StudentStatus;
 
 class LoginUserAction
 {
@@ -27,6 +28,17 @@ class LoginUserAction
         if ($user->status !== UserStatus::ACTIVE) {
             throw ValidationException::withMessages([
                 'email' => ['Your account is ' . ($user->status->value ?? 'inactive') . '. Please contact administrator.'],
+            ]);
+        }
+
+        $student = $user->student()->first();
+
+        if ($student && $student->status !== StudentStatus::ACTIVE) {
+            throw ValidationException::withMessages([
+                'email' => [
+                    'Status kemahasiswaan Anda adalah "' . $student->status->value
+                    . '", sehingga tidak dapat masuk ke sistem. Hubungi bagian akademik.',
+                ],
             ]);
         }
 

@@ -14,13 +14,17 @@ import {
   Users,
   AlertTriangle,
   ListChecks,
+  RefreshCw,
+  Unlock,
 } from 'lucide-vue-next'
 import { attendanceService } from '@/services/api/attendance'
 import { classService } from '@/services/api/classes'
 import { useToast } from '@/composables/useToast'
+import { getErrorMessage } from '@/utils/errors'
 import { formatDate, formatTime } from '@/utils/format'
 import type { AcademicClass } from '@/types/class'
 import type {
+  AttendanceThresholdStage,
   ClassAttendanceRecap,
   TeachingSession,
 } from '@/types/attendance'
@@ -30,6 +34,10 @@ import Tabs, { type TabItem } from '@/components/ui/Tabs.vue'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
+import Alert from '@/components/ui/Alert.vue'
+import Modal from '@/components/ui/Modal.vue'
+import FormField from '@/components/form/FormField.vue'
+import Textarea from '@/components/ui/Textarea.vue'
 import ConfirmModal from '@/components/feedback/ConfirmModal.vue'
 import TeachingMethodBadge from './components/TeachingMethodBadge.vue'
 import ExamEligibilityBadge from './components/ExamEligibilityBadge.vue'
@@ -44,7 +52,7 @@ const toast = useToast()
 const classId = computed(() => Number(route.params.id))
 
 // Attendance comes first: a lecturer lands here to mark students, not to read
-// a 16-column matrix.
+// a matrix of every meeting the class has.
 const activeTab = ref<string>('sessions')
 
 const academicClass = ref<AcademicClass | null>(null)
@@ -63,11 +71,19 @@ const deleteModalOpen = ref<boolean>(false)
 const sessionToDelete = ref<TeachingSession | null>(null)
 const deleting = ref<boolean>(false)
 
-const tabs: TabItem[] = [
+// Reopen a closed session (server requires a reason) and schedule sync.
+const reopenModalOpen = ref<boolean>(false)
+const sessionToReopen = ref<TeachingSession | null>(null)
+const reopenReason = ref<string>('')
+const reopenError = ref<string | null>(null)
+const reopening = ref<boolean>(false)
+const syncing = ref<boolean>(false)
+
+const tabs = computed<TabItem[]>(() => [
   { id: 'sessions', label: 'Pertemuan & Presensi' },
   { id: 'bap', label: 'Berita Acara (BAP)' },
-  { id: 'matrix', label: 'Matriks Kehadiran (1–16)' },
-]
+  { id: 'matrix', label: `Matriks Kehadiran (${matrixMeetingNumbers.value.length || 0} pertemuan)` },
+])
 
 /** Local (not UTC) YYYY-MM-DD so "today" matches the user's calendar. */
 function todayIso(): string {
@@ -82,6 +98,57 @@ const enrolledCount = computed<number>(() => recapData.value?.recap?.length ?? 0
 const sessionsByMeeting = computed<TeachingSession[]>(() =>
   [...sessions.value].sort((a, b) => a.meeting_number - b.meeting_number),
 )
+
+/**
+ * Matrix columns come from the meetings that actually exist. The old fixed
+ * 1-16 grid showed empty columns for short semesters and hid meetings 17+.
+ */
+const matrixMeetingNumbers = computed<number[]>(() =>
+  sessionsByMeeting.value.map((session) => session.meeting_number),
+)
+
+/** Meetings that really took place, as counted by the server. */
+const heldSessions = computed<number>(() => {
+  const fromRecap = recapData.value?.held_sessions
+  if (typeof fromRecap === 'number') return fromRecap
+  return sessions.value.filter((s) => s.status === 'open' || s.status === 'closed').length
+})
+
+/** Planning target for the class: teaching weeks, else the sessions created. */
+const meetingTarget = computed<number>(() => {
+  const weeks = recapData.value?.class?.semester?.total_teaching_weeks
+  if (typeof weeks === 'number' && weeks > 0) return weeks
+  return recapData.value?.total_sessions ?? sessions.value.length
+})
+
+/**
+ * The exam-eligibility threshold is owned by the server (it is configured per
+ * semester and differs between UTS and UAS); this page only displays it.
+ */
+const minAttendancePercentage = computed<number | null>(() => {
+  const value = recapData.value?.min_attendance_percentage
+  return typeof value === 'number' ? value : null
+})
+
+const thresholdStage = computed<AttendanceThresholdStage | undefined>(
+  () => recapData.value?.threshold_stage,
+)
+
+const stageLabel = computed<string>(() => (thresholdStage.value === 'uts' ? 'UTS' : 'UAS'))
+
+/** Rows of the recap whose attendance is still incomplete. */
+const unrecordedTotal = computed<number>(() =>
+  (recapData.value?.recap || []).reduce((sum, row) => sum + (row.unrecorded_count || 0), 0),
+)
+
+/**
+ * `can_manage` is the server's answer to "may this user write attendance here",
+ * so the edit affordances follow it instead of a role guess.
+ */
+const canManage = computed<boolean>(() => {
+  if (sessions.value.length === 0) return true
+  return sessions.value.some((session) => session.can_manage === true)
+})
 
 const todaySession = computed<TeachingSession | null>(() =>
   sessions.value.find((s) => s.session_date === todayIso()) ?? null,
@@ -131,8 +198,8 @@ async function loadData() {
     academicClass.value = classRes.data || null
     recapData.value = recapRes.data || null
     sessions.value = sessionsRes.data || []
-  } catch (err: any) {
-    toast.error(err.message || 'Gagal memuat data presensi kelas.')
+  } catch (err: unknown) {
+    toast.error(getErrorMessage(err, 'Gagal memuat data presensi kelas.'))
   } finally {
     loading.value = false
   }
@@ -193,10 +260,57 @@ async function handleDeleteSession() {
     deleteModalOpen.value = false
     sessionToDelete.value = null
     loadData()
-  } catch (err: any) {
-    toast.error(err.message || 'Gagal menghapus sesi perkuliahan.')
+  } catch (err: unknown) {
+    toast.error(getErrorMessage(err, 'Gagal menghapus sesi perkuliahan.'))
   } finally {
     deleting.value = false
+  }
+}
+
+function openReopenModal(session: TeachingSession) {
+  sessionToReopen.value = session
+  reopenReason.value = ''
+  reopenError.value = null
+  reopenModalOpen.value = true
+}
+
+/** Closed sessions are locked server-side; reopening always states a reason. */
+async function handleReopenSession() {
+  if (!sessionToReopen.value) return
+
+  const reason = reopenReason.value.trim()
+  if (reason.length < 5) {
+    reopenError.value = 'Alasan reopen wajib diisi (minimal 5 karakter).'
+    return
+  }
+
+  reopening.value = true
+  try {
+    await attendanceService.reopenSession(sessionToReopen.value.id, reason)
+    toast.success(`Pertemuan ke-${sessionToReopen.value.meeting_number} dibuka kembali untuk koreksi presensi.`)
+    reopenModalOpen.value = false
+    sessionToReopen.value = null
+    reopenReason.value = ''
+    await loadData()
+  } catch (err: unknown) {
+    reopenError.value = getErrorMessage(err, 'Gagal membuka kembali sesi presensi.')
+  } finally {
+    reopening.value = false
+  }
+}
+
+/** Regenerate this class' sessions from its schedule (missing / moved meetings). */
+async function handleSyncSessions() {
+  if (!classId.value) return
+  syncing.value = true
+  try {
+    const res = await attendanceService.syncClassSessions(classId.value)
+    toast.success(res.message || 'Sesi perkuliahan disinkronkan dari jadwal.')
+    await loadData()
+  } catch (err: unknown) {
+    toast.error(getErrorMessage(err, 'Gagal menyinkronkan sesi dari jadwal.'))
+  } finally {
+    syncing.value = false
   }
 }
 
@@ -228,7 +342,19 @@ watch(() => route.query.session, () => openSessionFromQuery())
             <ChevronLeft class="w-4 h-4" />
             <span>Kembali</span>
           </Button>
-          <Button variant="primary" size="sm" @click="openCreateSessionModal">
+          <Button
+            v-if="canManage"
+            variant="outline"
+            size="sm"
+            data-test="sync-sessions"
+            :loading="syncing"
+            title="Buat sesi yang belum ada dari jadwal kelas ini"
+            @click="handleSyncSessions"
+          >
+            <RefreshCw class="w-4 h-4" />
+            <span>Sinkron dari Jadwal</span>
+          </Button>
+          <Button v-if="canManage" variant="primary" size="sm" @click="openCreateSessionModal">
             <Plus class="w-4 h-4" />
             <span>Buka Pertemuan Baru</span>
           </Button>
@@ -317,20 +443,41 @@ watch(() => route.query.session, () => openSessionFromQuery())
 
       <!-- ============ TAB 1: Pertemuan & Presensi (primary action surface) ============ -->
       <div v-if="activeTab === 'sessions'" class="space-y-4">
+        <!-- Recap facts, all from the server: nothing here is a guessed constant -->
         <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-3 border border-slate-200 rounded-lg text-xs">
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-3 flex-wrap">
             <span class="text-slate-600 font-medium">
-              Total Pertemuan: <strong>{{ sessions.length }}</strong>
+              Pertemuan terlaksana: <strong data-test="held-sessions">{{ heldSessions }}</strong>
+              <span class="text-slate-400">/ {{ meetingTarget }} terjadwal</span>
             </span>
             <span v-if="enrolledCount > 0" class="text-slate-500">
               Mahasiswa terdaftar: <strong>{{ enrolledCount }}</strong>
             </span>
+            <span
+              v-if="minAttendancePercentage !== null"
+              data-test="recap-threshold"
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-2xs font-semibold text-slate-700"
+            >
+              Ambang layak {{ stageLabel }}: <strong>{{ minAttendancePercentage }}%</strong>
+            </span>
+            <span
+              v-if="unrecordedTotal > 0"
+              data-test="recap-unrecorded"
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-2xs font-semibold text-amber-800"
+            >
+              <AlertTriangle class="w-3 h-3" />
+              {{ unrecordedTotal }} catatan belum lengkap
+            </span>
           </div>
-          <Button variant="primary" size="xs" @click="openCreateSessionModal">
+          <Button v-if="canManage" variant="primary" size="xs" @click="openCreateSessionModal">
             <Plus class="w-3.5 h-3.5" />
             <span>Tambah Pertemuan</span>
           </Button>
         </div>
+
+        <Alert v-if="!canManage && sessions.length > 0" variant="info">
+          Anda bukan pengampu sesi pada kelas ini, jadi presensi hanya dapat dibaca.
+        </Alert>
 
         <div v-if="loading" class="text-center py-10 text-xs text-slate-400 bg-white border border-slate-200 rounded-lg">
           Memuat daftar pertemuan...
@@ -366,6 +513,7 @@ watch(() => route.query.session, () => openSessionFromQuery())
 
               <div class="flex items-center gap-1">
                 <button
+                  v-if="canManage"
                   type="button"
                   class="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
                   title="Ubah pertemuan"
@@ -374,6 +522,7 @@ watch(() => route.query.session, () => openSessionFromQuery())
                   <Edit class="w-3.5 h-3.5" />
                 </button>
                 <button
+                  v-if="canManage"
                   type="button"
                   class="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                   title="Hapus pertemuan"
@@ -398,6 +547,9 @@ watch(() => route.query.session, () => openSessionFromQuery())
                   <Clock class="w-3 h-3" />
                   {{ formatTime(session.start_time) }}
                 </span>
+                <Badge v-if="session.status === 'closed'" variant="neutral" size="xs">Terkunci</Badge>
+                <!-- Every role gets this flag; the code itself is never sent to students -->
+                <Badge v-else-if="session.is_check_in_active" variant="success" size="xs">Token aktif</Badge>
               </div>
             </div>
 
@@ -416,15 +568,38 @@ watch(() => route.query.session, () => openSessionFromQuery())
             <!-- Actions -->
             <div class="flex items-center gap-2 pt-2.5 border-t border-slate-100">
               <Button
+                v-if="session.status !== 'closed' && canManage"
                 variant="primary"
                 size="sm"
                 block
+                :data-test="`open-sheet-${session.id}`"
                 @click="openBatchAttendance(session)"
               >
                 <CheckCircle2 class="w-3.5 h-3.5" />
                 <span>{{ attendanceState(session).cta }}</span>
               </Button>
               <Button
+                v-else-if="session.status === 'closed' && canManage"
+                variant="primary"
+                size="sm"
+                block
+                @click="openBatchAttendance(session)"
+              >
+                <CheckCircle2 class="w-3.5 h-3.5" />
+                <span>Koreksi Presensi</span>
+              </Button>
+              <Button
+                v-else
+                variant="outline"
+                size="sm"
+                block
+                @click="openBatchAttendance(session)"
+              >
+                <CheckCircle2 class="w-3.5 h-3.5" />
+                <span>Lihat Presensi</span>
+              </Button>
+              <Button
+                v-if="session.can_manage !== false && session.status !== 'closed'"
                 variant="outline"
                 size="sm"
                 class="shrink-0"
@@ -432,6 +607,17 @@ watch(() => route.query.session, () => openSessionFromQuery())
                 @click="openQuickCheckIn(session)"
               >
                 <QrCode class="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                v-if="session.status === 'closed' && canManage"
+                variant="outline"
+                size="sm"
+                class="shrink-0"
+                data-test="reopen-session"
+                title="Buka kembali sesi terkunci (wajib alasan)"
+                @click="openReopenModal(session)"
+              >
+                <Unlock class="w-3.5 h-3.5" />
               </Button>
             </div>
           </div>
@@ -515,17 +701,20 @@ watch(() => route.query.session, () => openSessionFromQuery())
         </div>
       </div>
 
-      <!-- ============ TAB 3: Matriks Kehadiran (1–16) ============ -->
+      <!-- ============ TAB 3: Matriks Kehadiran ============ -->
       <div v-if="activeTab === 'matrix'" class="space-y-4">
         <Card>
           <template #header>
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800">
-                  Matriks Presensi Mahasiswa (Pertemuan 1 s.d. 16)
+                  Matriks Presensi Mahasiswa ({{ matrixMeetingNumbers.length }} pertemuan)
                 </h3>
                 <p class="text-2xs text-slate-500 mt-0.5">
-                  Rekapitulasi status kehadiran tiap mahasiswa per pertemuan dan persentase kelayakan mengikuti Ujian Akhir Semester (UAS).
+                  Rekapitulasi status kehadiran tiap mahasiswa per pertemuan dan persentase kelayakan
+                  {{ stageLabel }} sesuai ambang
+                  <strong v-if="minAttendancePercentage !== null">{{ minAttendancePercentage }}%</strong>
+                  <strong v-else>yang ditetapkan server</strong>.
                 </p>
               </div>
 
@@ -534,6 +723,7 @@ watch(() => route.query.session, () => openSessionFromQuery())
                 <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500" /> Izin (I)</span>
                 <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-500" /> Sakit (S)</span>
                 <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-rose-500" /> Alpa (A)</span>
+                <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full border border-dashed border-slate-400" /> Belum dicatat</span>
               </div>
             </div>
           </template>
@@ -545,28 +735,27 @@ watch(() => route.query.session, () => openSessionFromQuery())
                   <th class="py-2.5 px-3 w-10 text-center">No</th>
                   <th class="py-2.5 px-3 w-28">NIM</th>
                   <th class="py-2.5 px-3 min-w-[160px]">Nama Mahasiswa</th>
-                  <!-- Meeting Columns P1 to P16 -->
+                  <!-- One column per meeting that exists on this class -->
                   <th
-                    v-for="m in 16"
-                    :key="m"
-                    class="py-2 px-1 text-center w-8 text-2xs font-mono font-bold"
-                    :class="sessions.some(s => s.meeting_number === m) ? 'bg-brand-50/70 text-brand-900' : 'text-slate-400'"
-                    :title="`Pertemuan ke-${m}`"
+                    v-for="meetingNumber in matrixMeetingNumbers"
+                    :key="meetingNumber"
+                    class="py-2 px-1 text-center w-8 text-2xs font-mono font-bold bg-brand-50/70 text-brand-900"
+                    :title="`Pertemuan ke-${meetingNumber}`"
                   >
-                    P{{ m }}
+                    P{{ meetingNumber }}
                   </th>
-                  <th class="py-2.5 px-2 text-center w-20">Kehadiran</th>
-                  <th class="py-2.5 px-2 text-center w-28">Status UAS</th>
+                  <th class="py-2.5 px-2 text-center w-24">Kehadiran</th>
+                  <th class="py-2.5 px-2 text-center w-28">Status {{ stageLabel }}</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 bg-white">
                 <tr v-if="loading" class="text-center">
-                  <td colspan="22" class="py-8 text-slate-400">
+                  <td :colspan="matrixMeetingNumbers.length + 6" class="py-8 text-slate-400">
                     Memuat matriks kehadiran...
                   </td>
                 </tr>
                 <tr v-else-if="!recapData || recapData.recap.length === 0" class="text-center">
-                  <td colspan="22" class="py-8 text-slate-400">
+                  <td :colspan="matrixMeetingNumbers.length + 6" class="py-8 text-slate-400">
                     Belum ada data mahasiswa yang terdaftar di kelas ini.
                   </td>
                 </tr>
@@ -586,24 +775,24 @@ watch(() => route.query.session, () => openSessionFromQuery())
                     <span class="text-2xs text-slate-400">{{ row.student.study_program || '-' }}</span>
                   </td>
 
-                  <!-- P1 to P16 Cells -->
+                  <!-- One cell per meeting: a null status is not the same as Alpa -->
                   <td
-                    v-for="m in 16"
-                    :key="m"
+                    v-for="meetingNumber in matrixMeetingNumbers"
+                    :key="meetingNumber"
                     class="py-2 px-1 text-center font-mono text-2xs"
                   >
                     <span
-                      v-if="row.meetings[m]"
+                      v-if="row.meetings[meetingNumber]"
+                      :data-test="`matrix-cell-${row.student.id}-${meetingNumber}`"
                       :class="[
                         'inline-block w-6 h-6 leading-6 rounded-md font-bold text-2xs',
-                        row.meetings[m].status === 'present' ? 'bg-emerald-100 text-emerald-800' :
-                        row.meetings[m].status === 'permit' ? 'bg-blue-100 text-blue-800' :
-                        row.meetings[m].status === 'sick' ? 'bg-amber-100 text-amber-800' :
-                        'bg-rose-100 text-rose-800',
+                        matrixCellClass(row.meetings[meetingNumber].status),
                       ]"
-                      :title="`P${m}: ${row.meetings[m].status_code} (${row.meetings[m].session_date})`"
+                      :title="row.meetings[meetingNumber].status
+                        ? `P${meetingNumber}: ${row.meetings[meetingNumber].status_code} (${row.meetings[meetingNumber].session_date})`
+                        : `P${meetingNumber}: belum dicatat (${row.meetings[meetingNumber].session_date})`"
                     >
-                      {{ row.meetings[m].status_code }}
+                      {{ row.meetings[meetingNumber].status ? row.meetings[meetingNumber].status_code : '·' }}
                     </span>
                     <span v-else class="text-slate-300">-</span>
                   </td>
@@ -616,11 +805,25 @@ watch(() => route.query.session, () => openSessionFromQuery())
                     <span class="text-2xs text-slate-400 block">
                       {{ row.present_count + row.permit_count + row.sick_count }}/{{ row.total_meetings }}
                     </span>
+                    <span
+                      v-if="row.unrecorded_count > 0"
+                      data-test="row-unrecorded"
+                      class="text-2xs text-amber-700 font-semibold block"
+                      :title="`${row.unrecorded_count} pertemuan belum dicatat sama sekali`"
+                    >
+                      {{ row.unrecorded_count }} belum dicatat
+                    </span>
                   </td>
 
                   <!-- Exam Eligibility Badge -->
                   <td class="py-2 px-2 text-center">
-                    <ExamEligibilityBadge :eligible="row.is_eligible" size="sm" />
+                    <ExamEligibilityBadge
+                      :eligible="row.is_eligible"
+                      :percentage="row.percentage"
+                      :min-attendance-percentage="minAttendancePercentage"
+                      :stage="thresholdStage"
+                      size="sm"
+                    />
                   </td>
                 </tr>
               </tbody>

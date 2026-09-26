@@ -5,28 +5,57 @@ import type { StudentEnrollment } from '@/types/enrollment'
 
 interface Props {
   enrollment: StudentEnrollment
-  maxSks?: number
+  /**
+   * Batas SKS yang berlaku untuk KRS ini. Bila tidak dikirim, dipakai
+   * `max_credits` dari API — yaitu kuota per mahasiswa hasil jenjang IPS
+   * (`credit_limits.rules`) atau kuota yang dinaikkan Bagian Akademik — bukan
+   * angka 24 yang dipatok di komponen.
+   */
+  maxSks?: number | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  maxSks: 24,
+  maxSks: null,
+})
+
+const DEFAULT_MAX_SKS = 24
+
+/** Batas SKS efektif: prop eksplisit > kuota dari API > fallback aman. */
+const effectiveMaxSks = computed<number>(() => {
+  const fromProp = Number(props.maxSks)
+  if (Number.isFinite(fromProp) && fromProp > 0) return fromProp
+
+  const fromApi = Number(props.enrollment?.max_credits)
+  if (Number.isFinite(fromApi) && fromApi > 0) return fromApi
+
+  return DEFAULT_MAX_SKS
+})
+
+/**
+ * Hanya mata kuliah yang masih aktif yang dihitung. Baris batal-tambah
+ * (dropped/cancelled) tetap dikirim API sebagai jejak audit, tetapi bukan
+ * bagian dari beban studi.
+ */
+const activeItems = computed(() => {
+  return (props.enrollment?.items || []).filter((item) => !item.status || item.status === 'enrolled')
 })
 
 const totalCourses = computed(() => {
-  if (props.enrollment.items_count !== undefined) return props.enrollment.items_count
-  return props.enrollment.items?.length || 0
+  if (props.enrollment?.items_count !== undefined) return props.enrollment.items_count
+  return activeItems.value.length
 })
 
 const totalCredits = computed(() => {
-  return props.enrollment.total_credits || 0
+  return props.enrollment?.total_credits || 0
 })
 
 const remainingSks = computed(() => {
-  return Math.max(0, props.maxSks - totalCredits.value)
+  return Math.max(0, effectiveMaxSks.value - totalCredits.value)
 })
 
 const percentage = computed(() => {
-  return Math.min(100, Math.round((totalCredits.value / props.maxSks) * 100))
+  if (effectiveMaxSks.value <= 0) return 0
+  return Math.min(100, Math.round((totalCredits.value / effectiveMaxSks.value) * 100))
 })
 </script>
 
@@ -60,8 +89,9 @@ const percentage = computed(() => {
         <CheckCircle2 class="w-5 h-5" />
       </div>
       <div>
-        <span class="text-3xs font-semibold uppercase tracking-wider text-slate-500 block">Batas Maksimal</span>
-        <span class="text-base font-bold text-slate-800 font-mono">{{ maxSks }} <span class="text-xs font-normal text-slate-500">SKS</span></span>
+        <span class="text-3xs font-semibold uppercase tracking-wider text-slate-500 block">Batas Maksimal SKS</span>
+        <span class="text-base font-bold text-slate-800 font-mono">{{ effectiveMaxSks }} <span class="text-xs font-normal text-slate-500">SKS</span></span>
+        <span class="text-3xs text-slate-400 block">Kuota per mahasiswa (jenjang IPS)</span>
       </div>
     </div>
 

@@ -41,7 +41,10 @@ const form = reactive({
   min_attendance_uts_percentage: 50,
   min_attendance_uas_percentage: 80,
   total_teaching_weeks: 16,
-  status: 'active',
+  // Default nonaktif: pembuatan periode biasa tidak boleh merebut status
+  // "semester aktif" yang sedang berjalan. Aktivasi dilakukan secara eksplisit
+  // lewat tombol status di daftar Periode Akademik.
+  status: 'inactive',
 })
 
 async function loadDependencies() {
@@ -72,7 +75,7 @@ async function loadDependencies() {
         form.min_attendance_uts_percentage = data.min_attendance_uts_percentage ?? 50
         form.min_attendance_uas_percentage = data.min_attendance_uas_percentage ?? 80
         form.total_teaching_weeks = data.total_teaching_weeks ?? 16
-        form.status = data.status || 'active'
+        form.status = data.status || 'inactive'
       }
     }
   } catch (err: any) {
@@ -441,9 +444,12 @@ onMounted(() => {
                   v-model="form.status"
                   class="w-full text-xs py-2 px-3 border border-slate-300 rounded-lg text-slate-900 bg-white focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none"
                 >
-                  <option value="active">Aktif</option>
                   <option value="inactive">Nonaktif</option>
+                  <option value="active">Aktif</option>
                 </select>
+                <p class="text-3xs text-slate-400">
+                  Periode baru disimpan sebagai nonaktif secara bawaan. Pilih "Aktif" hanya bila periode ini harus langsung menggantikan periode yang sedang berjalan.
+                </p>
               </div>
             </div>
           </div>

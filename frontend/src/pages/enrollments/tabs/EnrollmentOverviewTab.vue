@@ -21,7 +21,7 @@ const approverName = computed(() => {
 <template>
   <div class="space-y-5">
     <!-- Top Summary Cards -->
-    <EnrollmentSummary :enrollment="enrollment" />
+    <EnrollmentSummary :enrollment="enrollment" :max-sks="enrollment.max_credits ?? null" />
 
     <!-- Grid Detail -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">

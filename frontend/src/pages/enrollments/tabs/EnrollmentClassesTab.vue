@@ -40,6 +40,19 @@ const isEditable = computed(() => {
   return props.enrollment.status === 'draft' || props.enrollment.status === 'revision_required'
 })
 
+/**
+ * Baris batal-tambah (dropped/cancelled) dikirim API sebagai jejak audit dan
+ * tidak boleh ikut dihitung sebagai beban studi maupun tampil sebagai kelas
+ * yang masih terdaftar.
+ */
+const activeItems = computed<StudentEnrollmentItem[]>(() => {
+  return (props.enrollment.items || []).filter((item) => !item.status || item.status === 'enrolled')
+})
+
+const droppedItems = computed<StudentEnrollmentItem[]>(() => {
+  return (props.enrollment.items || []).filter((item) => item.status === 'dropped')
+})
+
 const filteredClasses = computed(() => {
   let list = availableClasses.value
   if (classFilters.value.search) {
@@ -90,14 +103,14 @@ onMounted(() => {
     />
 
     <!-- Top SKS & Course Count Metrics -->
-    <EnrollmentSummary :enrollment="enrollment" />
+    <EnrollmentSummary :enrollment="enrollment" :max-sks="enrollment.max_credits ?? null" />
 
     <!-- Section 1: Daftar Mata Kuliah yang Telah Diambil (KRS) -->
     <Card>
       <template #header>
         <div class="flex items-center justify-between">
           <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800">
-            Daftar Kelas Terdaftar ({{ enrollment.items?.length || 0 }} Mata Kuliah · {{ enrollment.total_credits || 0 }} SKS)
+            Daftar Kelas Terdaftar ({{ activeItems.length }} Mata Kuliah · {{ enrollment.total_credits || 0 }} SKS dari {{ enrollment.max_credits || 24 }} SKS)
           </h3>
           <span v-if="!isEditable" class="text-2xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
             Mode Baca Saja (Terkunci)
@@ -106,9 +119,9 @@ onMounted(() => {
       </template>
 
       <EnrollmentItemList
-        v-if="enrollment.items && enrollment.items.length > 0"
+        v-if="activeItems.length > 0"
         :enrollment="enrollment"
-        :items="enrollment.items"
+        :items="activeItems"
         :loading="loading"
         @remove-item="emit('remove-item', $event)"
       />
@@ -119,6 +132,27 @@ onMounted(() => {
           Silakan pilih kelas perkuliahan yang tersedia pada tabel katalog di bawah ini.
         </p>
       </div>
+    </Card>
+
+    <!-- Section 1b: Riwayat Batal-Tambah (jejak audit, bukan beban studi) -->
+    <Card v-if="droppedItems.length > 0">
+      <template #header>
+        <div class="space-y-1">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800">
+            Riwayat Batal-Tambah ({{ droppedItems.length }} Mata Kuliah)
+          </h3>
+          <p class="text-2xs text-slate-500">
+            Mata kuliah berikut sudah dibatalkan sehingga tidak lagi dihitung sebagai beban SKS,
+            tidak muncul pada jadwal maupun KHS, dan disimpan sebagai jejak audit.
+          </p>
+        </div>
+      </template>
+
+      <EnrollmentItemList
+        :enrollment="enrollment"
+        :items="droppedItems"
+        :readonly="true"
+      />
     </Card>
 
     <!-- Section 2: Katalog Pemilihan Kelas Perkuliahan (Only if editable) -->

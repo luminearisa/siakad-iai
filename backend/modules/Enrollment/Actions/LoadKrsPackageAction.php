@@ -60,7 +60,14 @@ class LoadKrsPackageAction
             }
 
             try {
-                // bypass_curriculum = true karena paket sudah dikurasi oleh admin
+                // bypassCurriculum ONLY skips rule 8 (curriculum/prodi match) — and that
+                // is genuinely required here: a package is curated by the academic
+                // office per study program + semester level, so it can legitimately
+                // contain a course that is not (yet) listed in the *active* curriculum
+                // version the generic rule looks at. Everything else still applies to
+                // every course of the package: student status, KRS/KPRS window, class
+                // open + same semester, capacity, duplicate course, prerequisites
+                // (grade-based), schedule conflict and the per-student SKS ceiling.
                 $this->addEnrollmentItemAction->execute($enrollment, $class->id, null, true);
                 $results['added'][] = $courseName;
             } catch (\Throwable $e) {

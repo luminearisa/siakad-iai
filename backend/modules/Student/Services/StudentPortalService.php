@@ -28,8 +28,7 @@ class StudentPortalService
     {
         $student = $user->student
             ?? Student::where('user_id', $user->id)->first()
-            ?? Student::where('email', $user->email)->first()
-            ?? Student::first();
+            ?? Student::where('email', $user->email)->first();
 
         if (!$student) {
             throw new NotFoundHttpException('Data profil mahasiswa tidak ditemukan.');
@@ -245,6 +244,30 @@ class StudentPortalService
                 'cumulative_gpa' => $cumulative['cumulative_gpa'],
                 'max_credits_next' => $this->calculateMaxCredits($ips, $currentSemester === 1),
             ],
+        ];
+    }
+
+    /**
+     * Compact academic snapshot of a student (cumulative credits, GPA, current
+     * semester). Exposed publicly so other modules (e.g. MBKM eligibility) can
+     * reuse the exact same numbers instead of recomputing the KHS pipeline.
+     *
+     * @return array{total_credits_passed: int, cumulative_gpa: float, last_semester_gpa: float, current_semester: int, max_credits_next: int}
+     */
+    public function getAcademicSnapshot(Student $student): array
+    {
+        $cumulative = $this->calculateCumulativeKHS($student);
+        $currentSemester = $this->estimateCurrentSemester($student);
+
+        return [
+            'total_credits_passed' => $cumulative['total_credits_passed'],
+            'cumulative_gpa' => $cumulative['cumulative_gpa'],
+            'last_semester_gpa' => $cumulative['last_semester_gpa'],
+            'current_semester' => $currentSemester,
+            'max_credits_next' => $this->calculateMaxCredits(
+                $cumulative['last_semester_gpa'],
+                $currentSemester === 1
+            ),
         ];
     }
 

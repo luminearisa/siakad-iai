@@ -7,12 +7,13 @@ use App\Support\Traits\HasApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Attendance\Enums\AttendanceStatus;
-use Modules\Attendance\Models\StudentAttendance;
 use Modules\Attendance\Models\TeachingSession;
 use Modules\Attendance\Requests\BatchAttendanceRequest;
+use Modules\Attendance\Requests\RecordSingleAttendanceRequest;
 use Modules\Attendance\Requests\SelfCheckInRequest;
 use Modules\Attendance\Resources\StudentAttendanceResource;
 use Modules\Attendance\Services\AttendanceService;
+use Modules\Attendance\Support\AttendanceAccess;
 use Modules\Student\Models\Student;
 
 class StudentAttendanceController extends Controller
@@ -24,11 +25,14 @@ class StudentAttendanceController extends Controller
     ) {}
 
     /**
-     * Attendance sheet for a session: the full class roster merged with any
-     * records already saved, so the lecturer always has every student to mark.
+     * Daftar absen satu sesi: roster kelas digabung dengan baris yang sudah tersimpan.
      */
-    public function sessionStudents(TeachingSession $teaching_session): JsonResponse
+    public function sessionStudents(Request $request, TeachingSession $teaching_session): JsonResponse
     {
+        if (!AttendanceAccess::mayManageSession($request->user(), $teaching_session)) {
+            return $this->errorResponse('Hanya dosen pengampu atau staf akademik yang dapat melihat daftar absen ini.', 403);
+        }
+
         return $this->successResponse(
             data: $this->attendanceService->getSessionAttendanceSheet($teaching_session),
             message: 'Session student attendances retrieved successfully.'
@@ -37,8 +41,16 @@ class StudentAttendanceController extends Controller
 
     public function recordBatch(BatchAttendanceRequest $request, TeachingSession $teaching_session): JsonResponse
     {
-        $userId = $request->user()?->id;
-        $this->attendanceService->recordBatch($teaching_session, $request->input('attendances'), $userId);
+        if (!AttendanceAccess::mayManageSession($request->user(), $teaching_session)) {
+            return $this->errorResponse('Hanya dosen pengampu sesi ini atau staf akademik yang dapat mencatat presensi.', 403);
+        }
+
+        $this->attendanceService->recordBatch(
+            session: $teaching_session,
+            rows: $request->input('attendances'),
+            userId: $request->user()?->id,
+            correctionReason: $request->input('correction_reason')
+        );
 
         return $this->successResponse(
             data: $this->attendanceService->getSessionAttendanceSheet($teaching_session),
@@ -46,110 +58,83 @@ class StudentAttendanceController extends Controller
         );
     }
 
-    public function updateSingle(Request $request, TeachingSession $teaching_session, Student $student): JsonResponse
-    {
-        $validated = $request->validate([
-            'status' => ['required'],
-            'notes' => ['nullable', 'string', 'max:255'],
-        ]);
+    public function updateSingle(
+        RecordSingleAttendanceRequest $request,
+        TeachingSession $teaching_session,
+        Student $student
+    ): JsonResponse {
+        if (!AttendanceAccess::mayManageSession($request->user(), $teaching_session)) {
+            return $this->errorResponse('Hanya dosen pengampu sesi ini atau staf akademik yang dapat mengoreksi presensi.', 403);
+        }
 
-        $attendance = StudentAttendance::updateOrCreate(
-            [
-                'teaching_session_id' => $teaching_session->id,
-                'student_id' => $student->id,
-            ],
-            [
-                'academic_class_id' => $teaching_session->academic_class_id,
-                'status' => $validated['status'],
-                'notes' => $validated['notes'] ?? null,
-                'recorded_by' => $request->user()?->id,
-                'recorded_at' => now(),
-            ]
+        $attendance = $this->attendanceService->recordSingle(
+            session: $teaching_session,
+            student: $student,
+            status: AttendanceStatus::from($request->validated('status')),
+            notes: $request->validated('notes'),
+            userId: $request->user()?->id,
+            correctionReason: $request->validated('correction_reason')
         );
 
         return $this->successResponse(
-            data: new StudentAttendanceResource($attendance->load('student.studyProgram')),
+            data: new StudentAttendanceResource($attendance),
             message: 'Student attendance updated successfully.'
         );
     }
 
+    /**
+     * Presensi mandiri. Identitas mahasiswa diambil dari akun yang login — tanpa
+     * profil mahasiswa milik sendiri, permintaan ditolak (tidak ada fallback).
+     */
     public function selfCheckIn(SelfCheckInRequest $request): JsonResponse
     {
-        $user = $request->user();
-        $student = null;
-
-        if ($user) {
-            $student = $user->student;
-            if (!$student && $user->id) {
-                $student = Student::where('user_id', $user->id)->first();
-            }
-            if (!$student && $user->email) {
-                $student = Student::where('email', $user->email)->first();
-            }
-            if (!$student) {
-                $student = Student::first();
-            }
-        }
+        $student = AttendanceAccess::currentStudent($request->user());
 
         if (!$student) {
-            return $this->errorResponse('Akun Anda tidak terhubung dengan profil mahasiswa aktif.', 403);
+            return $this->errorResponse('Akun Anda tidak terhubung dengan profil mahasiswa.', 403);
         }
 
-        try {
-            $attendance = $this->attendanceService->selfCheckIn(
-                sessionId: (int) $request->input('teaching_session_id'),
-                code: (string) $request->input('check_in_code'),
-                student: $student,
-                userId: $user->id
-            );
+        $session = TeachingSession::findOrFail((int) $request->input('teaching_session_id'));
 
-            return $this->successResponse(
-                data: new StudentAttendanceResource($attendance),
-                message: 'Presensi mandiri berhasil dicatat! Anda tercatat HADIR.'
-            );
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 422);
-        }
+        $attendance = $this->attendanceService->selfCheckIn(
+            session: $session,
+            code: (string) $request->input('check_in_code'),
+            student: $student,
+            userId: $request->user()->id
+        );
+
+        return $this->successResponse(
+            data: new StudentAttendanceResource($attendance),
+            message: 'Presensi mandiri berhasil dicatat! Anda tercatat HADIR.'
+        );
     }
 
     public function myAttendance(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $student = null;
-
-        if ($user) {
-            $student = $user->student;
-            if (!$student && $user->id) {
-                $student = Student::where('user_id', $user->id)->first();
-            }
-            if (!$student && $user->email) {
-                $student = Student::where('email', $user->email)->first();
-            }
-            if (!$student) {
-                $student = Student::first();
-            }
-        }
+        $student = AttendanceAccess::currentStudent($request->user());
 
         if (!$student) {
-            return $this->errorResponse('Student profile not found.', 404);
+            return $this->errorResponse('Akun Anda tidak terhubung dengan profil mahasiswa.', 403);
         }
 
         $semesterId = $request->query('semester_id') ? (int) $request->query('semester_id') : null;
-        $recap = $this->attendanceService->getStudentRecap($student, $semesterId);
 
         return $this->successResponse(
-            data: $recap,
+            data: $this->attendanceService->getStudentRecap($student, $semesterId),
             message: 'Student attendance retrieved successfully.'
         );
     }
 
     public function studentRecap(Student $student, Request $request): JsonResponse
     {
+        if (!AttendanceAccess::maySeeStudent($request->user(), $student)) {
+            return $this->errorResponse('Anda tidak berwenang melihat rekap kehadiran mahasiswa ini.', 403);
+        }
+
         $semesterId = $request->query('semester_id') ? (int) $request->query('semester_id') : null;
-        $recap = $this->attendanceService->getStudentRecap($student, $semesterId);
 
         return $this->successResponse(
-            data: $recap,
+            data: $this->attendanceService->getStudentRecap($student, $semesterId),
             message: 'Student attendance recap retrieved successfully.'
         );
     }

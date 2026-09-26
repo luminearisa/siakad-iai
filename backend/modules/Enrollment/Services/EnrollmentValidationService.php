@@ -5,6 +5,7 @@ namespace Modules\Enrollment\Services;
 use Illuminate\Validation\ValidationException;
 use Modules\Class\Enums\ClassStatus;
 use Modules\Class\Models\AcademicClass;
+use Modules\Curriculum\Models\CreditLimit;
 use Modules\Curriculum\Models\Curriculum;
 use Modules\Enrollment\Models\StudentEnrollment;
 use Modules\Schedule\Services\ScheduleConflictService;
@@ -109,8 +110,9 @@ class EnrollmentValidationService
             }
         }
 
-        // 7. Max SKS Limit Rule
-        $maxSks = (int) $this->settingService->get('max_sks', 24);
+        // 7. Max SKS Limit Rule — the ceiling is per student (IPS tier from the
+        //    curriculum's credit_limits), not one global number for everybody.
+        $maxSks = $this->getMaxCredits($student, $enrollment);
         $courseCredits = (int) ($class->course?->credits ?? 2);
         $currentCredits = (int) $enrollment->items()->where('status', 'enrolled')->sum('credits');
 
@@ -129,11 +131,166 @@ class EnrollmentValidationService
     }
 
     /**
+     * Resolve the SKS ceiling that applies to ONE student.
+     *
+     * Priority:
+     *  a. `student_enrollments.max_credits` — the quota recorded on this KRS. It is
+     *     written from the IPS tier at creation time (CreateEnrollmentAction) and
+     *     can be raised/lowered by the academic office through the advisor-quota
+     *     endpoint, so whenever it holds a positive value it is authoritative.
+     *  b. The IPS tier of `credit_limits.rules` attached to the student's applicable
+     *     curriculum, matched against the student's previous-semester IPS computed
+     *     from real grade data.
+     *  c. The global `max_sks` setting.
+     *
+     * When the student has no prior IPS yet (mahasiswa baru / semester pertama)
+     * the highest configured tier is used, because there is no low performance to
+     * restrict.
+     */
+    public function getMaxCredits(Student $student, ?StudentEnrollment $enrollment = null): int
+    {
+        // (a) per-enrollment quota
+        $explicitMaxCredits = $enrollment ? (int) $enrollment->max_credits : 0;
+        if ($explicitMaxCredits > 0) {
+            return $explicitMaxCredits;
+        }
+
+        // (b) IPS tier from credit_limits.rules
+        $rules = $this->creditLimitRules($student);
+
+        if (!empty($rules)) {
+            $ips = $this->historyProvider->calculatePreviousIps($student, $enrollment?->semester_id);
+
+            if ($ips === null) {
+                $highest = $this->highestTierCredits($rules);
+
+                return $highest ?? $this->globalMaxSks();
+            }
+
+            $tier = $this->tierForIps($rules, $ips);
+
+            if ($tier !== null) {
+                return $tier;
+            }
+        }
+
+        // (c) global fallback
+        return $this->globalMaxSks();
+    }
+
+    /**
+     * Global `max_sks` setting (last-resort ceiling).
+     */
+    public function globalMaxSks(): int
+    {
+        return (int) $this->settingService->get('max_sks', 24);
+    }
+
+    /**
+     * Read the tier table `[{min_gpa, max_gpa, max_sks}, ...]` of the credit limit
+     * bound to the student's applicable curriculum, sorted from the highest GPA down.
+     *
+     * @return array<int, array{min_gpa: float, max_gpa: float, max_sks: int}>
+     */
+    public function creditLimitRules(Student $student): array
+    {
+        $curriculum = $this->applicableCurriculum($student);
+
+        if (!$curriculum?->credit_limit_id) {
+            return [];
+        }
+
+        $creditLimit = CreditLimit::find($curriculum->credit_limit_id);
+        $rawRules = is_array($creditLimit?->rules) ? $creditLimit->rules : [];
+
+        $rules = [];
+        foreach ($rawRules as $rule) {
+            if (!is_array($rule) || !isset($rule['max_sks'])) {
+                continue;
+            }
+
+            $rules[] = [
+                'min_gpa' => (float) ($rule['min_gpa'] ?? 0),
+                'max_gpa' => (float) ($rule['max_gpa'] ?? 4.0),
+                'max_sks' => (int) $rule['max_sks'],
+            ];
+        }
+
+        usort($rules, fn (array $a, array $b) => $b['min_gpa'] <=> $a['min_gpa']);
+
+        return $rules;
+    }
+
+    /**
+     * The curriculum that governs this student: the active one of their study
+     * program, or — for older cohorts — the newest one that had already started
+     * when they were admitted.
+     */
+    protected function applicableCurriculum(Student $student): ?Curriculum
+    {
+        if (!$student->study_program_id) {
+            return null;
+        }
+
+        $curriculum = Curriculum::where('study_program_id', $student->study_program_id)
+            ->where('status', 'active')
+            ->orderByDesc('start_year')
+            ->first();
+
+        if ($curriculum) {
+            return $curriculum;
+        }
+
+        return Curriculum::where('study_program_id', $student->study_program_id)
+            ->when($student->admission_year, fn ($q) => $q->where('start_year', '<=', $student->admission_year))
+            ->orderByDesc('start_year')
+            ->first();
+    }
+
+    /**
+     * The max_sks of the tier that covers the given IPS.
+     *
+     * Tiers are scanned from the highest min_gpa downwards and the first one the
+     * IPS reaches wins, which also honours max_gpa for well-formed configurations.
+     * An IPS below every tier falls into the most restrictive one.
+     */
+    protected function tierForIps(array $rules, float $ips): ?int
+    {
+        foreach ($rules as $rule) {
+            // Small epsilon: tiers are usually written as 2.50 - 2.99 while an IPS
+            // of 2.995 must still land in that band rather than fall through.
+            if ($ips >= ($rule['min_gpa'] - 0.005)) {
+                return (int) $rule['max_sks'];
+            }
+        }
+
+        $lowest = end($rules);
+
+        return $lowest ? (int) $lowest['max_sks'] : null;
+    }
+
+    /**
+     * The most generous tier — used when the student has no IPS history yet.
+     */
+    protected function highestTierCredits(array $rules): ?int
+    {
+        if (empty($rules)) {
+            return null;
+        }
+
+        return (int) max(array_map(fn (array $rule) => (int) $rule['max_sks'], $rules));
+    }
+
+    /**
      * Check the KRS submission window (open date / deadline / KPRS revision window).
+     *
+     * Public because the window must be re-validated on every mutation of a KRS,
+     * not only when a class is added: SubmitEnrollmentAction and
+     * RemoveEnrollmentItemAction call it directly instead of duplicating date logic.
      *
      * @return array<string, list<string>>
      */
-    protected function checkKrsWindow(StudentEnrollment $enrollment): array
+    public function checkKrsWindow(StudentEnrollment $enrollment): array
     {
         $semester = $enrollment->semester;
 

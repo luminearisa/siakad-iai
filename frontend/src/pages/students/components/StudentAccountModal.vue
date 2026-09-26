@@ -37,8 +37,7 @@ watch(
   (isOpen) => {
     if (isOpen) {
       form.email = props.student.user?.email || props.student.email || `${props.student.student_number}@student.ac.id`
-      form.password = `${props.student.student_number}123`
-      form.confirmPassword = `${props.student.student_number}123`
+      generateRandomPassword(true)
       showPassword.value = true
       copied.value = false
     }
@@ -46,20 +45,17 @@ watch(
   { immediate: true }
 )
 
-function generateRandomPassword() {
+function generateRandomPassword(silent = false) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
   let pass = ''
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 12; i++) {
     pass += chars.charAt(Math.floor(Math.random() * chars.length))
   }
   form.password = pass
   form.confirmPassword = pass
-  toast.info('Password acak dibuat.')
-}
-
-function useDefaultNimPassword() {
-  form.password = `${props.student.student_number}123`
-  form.confirmPassword = `${props.student.student_number}123`
+  if (!silent) {
+    toast.info('Password acak dibuat.')
+  }
 }
 
 function copyPassword() {
@@ -77,8 +73,8 @@ async function handleSubmit() {
     return
   }
 
-  if (!form.password || form.password.length < 6) {
-    toast.error('Password minimal 6 karakter.')
+  if (!form.password || form.password.length < 8) {
+    toast.error('Password minimal 8 karakter.')
     return
   }
 
@@ -167,16 +163,8 @@ async function handleSubmit() {
           <div class="flex items-center gap-2">
             <button
               type="button"
-              class="text-3xs text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer font-medium"
-              @click="useDefaultNimPassword"
-            >
-              NIM+123
-            </button>
-            <span class="text-slate-300">|</span>
-            <button
-              type="button"
               class="text-3xs text-brand-600 hover:underline flex items-center gap-1 cursor-pointer font-medium"
-              @click="generateRandomPassword"
+              @click="generateRandomPassword()"
             >
               <Sparkles class="w-3 h-3" />
               Acak

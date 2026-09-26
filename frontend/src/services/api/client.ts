@@ -120,6 +120,45 @@ class ApiClient {
     const res = await this.instance.delete<ApiResponse<T>>(url, config)
     return res.data
   }
+
+  /**
+   * Fetch a binary/streamed response (CSV export, PDF, ...) and hand it to the
+   * browser as a file download. Always pass an explicit `filename`: the
+   * `Content-Disposition` header is not guaranteed to be exposed through CORS.
+   */
+  public async download(
+    url: string,
+    params?: Record<string, unknown>,
+    filename = 'download',
+    config?: AxiosRequestConfig
+  ): Promise<void> {
+    const res = await this.instance.get<Blob>(url, {
+      params,
+      responseType: 'blob',
+      ...config,
+    })
+
+    const resolvedName = this.filenameFromDisposition(res.headers?.['content-disposition']) ?? filename
+    const objectUrl = window.URL.createObjectURL(res.data)
+    const link = document.createElement('a')
+
+    link.href = objectUrl
+    link.download = resolvedName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(objectUrl)
+  }
+
+  private filenameFromDisposition(disposition?: string): string | null {
+    if (!disposition) return null
+
+    const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(disposition)
+    if (utf8?.[1]) return decodeURIComponent(utf8[1])
+
+    const plain = /filename="?([^";]+)"?/i.exec(disposition)
+    return plain?.[1] ?? null
+  }
 }
 
 export const apiClient = new ApiClient()

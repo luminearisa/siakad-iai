@@ -2,7 +2,9 @@
 
 namespace Modules\Academic\Database\Seeders;
 
+use Carbon\Carbon;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Modules\Academic\Enums\AcademicStatus;
 use Modules\Academic\Enums\DegreeLevel;
 use Modules\Academic\Enums\SemesterType;
@@ -14,6 +16,9 @@ use Modules\Academic\Models\StudyProgram;
 
 class AcademicSeeder extends Seeder
 {
+    /** Bulan dimulainya tahun ajaran baru (1 September). */
+    private const ACADEMIC_YEAR_START_MONTH = 9;
+
     public function run(): void
     {
         // 1. Create Institution
@@ -147,76 +152,178 @@ class AcademicSeeder extends Seeder
             );
         }
 
-        // 4. Create Academic Years (Current Active first, then Past/Future)
-        $ayCurrent = AcademicYear::firstOrCreate(
-            ['name' => '2025/2026'],
-            [
-                'start_date' => '2025-09-01',
-                'end_date' => '2026-08-31',
-                'status' => AcademicStatus::ACTIVE,
-            ]
-        );
+        // 4. Academic Years & Semesters (tahun ajaran berjalan mengikuti tanggal hari ini)
+        $this->seedAcademicPeriods();
+    }
 
-        $ayPast = AcademicYear::firstOrCreate(
-            ['name' => '2024/2025'],
-            [
-                'start_date' => '2024-09-01',
-                'end_date' => '2025-08-31',
-                'status' => AcademicStatus::INACTIVE,
-            ]
-        );
+    /**
+     * Seed tahun ajaran + semester beserta seluruh jendela tanggal akademiknya.
+     *
+     * Gap #12 — sebelumnya krs_start_date/krs_end_date (dan jendela UTS/UAS/kuliah)
+     * dibiarkan NULL sehingga gerbang jadwal KRS tidak pernah aktif. Sekarang setiap
+     * semester punya jendela yang diturunkan dari start_date/end_date-nya sendiri dan
+     * konsisten dengan validasi SemesterRequest.
+     *
+     * Seeder ini idempoten: memakai updateOrCreate pada kunci alami dan dijalankan
+     * di dalam satu transaksi, sehingga aman dijalankan berulang tanpa duplikasi.
+     */
+    private function seedAcademicPeriods(): void
+    {
+        $today = now()->startOfDay();
 
-        // 5. Create Semesters (Active Semester Ganjil 2025/2026 is ID 1)
-        Semester::firstOrCreate(
+        // Tahun ajaran baru di perguruan tinggi dimulai 1 September.
+        $currentStartYear = $today->month >= self::ACADEMIC_YEAR_START_MONTH
+            ? $today->year
+            : $today->year - 1;
+
+        // Tahun ajaran berjalan dibuat lebih dahulu agar tetap menjadi baris pertama —
+        // seeder modul lain (MBKM, Graduation) mengikat periodenya ke Semester::first().
+        $startYears = [$currentStartYear, $currentStartYear - 1];
+
+        DB::transaction(function () use ($startYears, $today): void {
+            // Reset status lebih dulu supaya unique index "satu periode aktif" tidak
+            // bentrok ketika seeder dijalankan ulang.
+            Semester::query()->update(['status' => AcademicStatus::INACTIVE->value]);
+            AcademicYear::query()->update(['status' => AcademicStatus::INACTIVE->value]);
+
+            $activeYear = null;
+            $activeSemester = null;
+
+            foreach ($startYears as $startYear) {
+                $yearStart = Carbon::create($startYear, self::ACADEMIC_YEAR_START_MONTH, 1)->startOfDay();
+                $yearEnd = Carbon::create($startYear + 1, 8, 31)->startOfDay();
+
+                $year = AcademicYear::updateOrCreate(
+                    ['name' => $this->yearName($startYear)],
+                    [
+                        'start_date' => $yearStart->toDateString(),
+                        'end_date' => $yearEnd->toDateString(),
+                        'status' => AcademicStatus::INACTIVE,
+                    ]
+                );
+
+                $ganjil = $this->upsertSemester($year, [
+                    'name' => 'Ganjil ' . $this->yearName($startYear),
+                    'type' => SemesterType::GANJIL,
+                    'start_date' => Carbon::create($startYear, 9, 1)->startOfDay(),
+                    'end_date' => Carbon::create($startYear + 1, 1, 31)->startOfDay(),
+                ], $today);
+
+                $genap = $this->upsertSemester($year, [
+                    'name' => 'Genap ' . $this->yearName($startYear),
+                    'type' => SemesterType::GENAP,
+                    'start_date' => Carbon::create($startYear + 1, 2, 1)->startOfDay(),
+                    'end_date' => Carbon::create($startYear + 1, 7, 31)->startOfDay(),
+                ], $today);
+
+                if (! $today->betweenIncluded($yearStart, $yearEnd)) {
+                    continue;
+                }
+
+                $activeYear = $year;
+                $activeSemester = collect([$ganjil, $genap])->first(
+                    fn (Semester $semester) => $today->betweenIncluded(
+                        $semester->start_date->startOfDay(),
+                        $semester->end_date->startOfDay()
+                    )
+                ) ?? $ganjil;
+            }
+
+            // Tepat satu tahun ajaran dan satu semester aktif.
+            $activeYear?->update(['status' => AcademicStatus::ACTIVE]);
+            $activeSemester?->update(['status' => AcademicStatus::ACTIVE]);
+        });
+    }
+
+    /**
+     * @param  array{name: string, type: SemesterType, start_date: Carbon, end_date: Carbon}  $definition
+     */
+    private function upsertSemester(AcademicYear $year, array $definition, Carbon $today): Semester
+    {
+        return Semester::updateOrCreate(
             [
-                'academic_year_id' => $ayCurrent->id,
-                'name' => 'Ganjil 2025/2026',
+                'academic_year_id' => $year->id,
+                'name' => $definition['name'],
             ],
-            [
-                'type' => SemesterType::GANJIL,
-                'start_date' => '2025-09-01',
-                'end_date' => '2026-01-31',
-                'status' => AcademicStatus::ACTIVE,
-            ]
+            array_merge(
+                [
+                    'type' => $definition['type'],
+                    'start_date' => $definition['start_date']->toDateString(),
+                    'end_date' => $definition['end_date']->toDateString(),
+                    'min_attendance_uts_percentage' => 50,
+                    'min_attendance_uas_percentage' => 80,
+                    'total_teaching_weeks' => 16,
+                    'status' => AcademicStatus::INACTIVE,
+                ],
+                $this->buildAcademicWindows($definition['start_date'], $definition['end_date'], $today)
+            )
         );
+    }
 
-        Semester::firstOrCreate(
-            [
-                'academic_year_id' => $ayCurrent->id,
-                'name' => 'Genap 2025/2026',
-            ],
-            [
-                'type' => SemesterType::GENAP,
-                'start_date' => '2026-02-01',
-                'end_date' => '2026-06-30',
-                'status' => AcademicStatus::INACTIVE,
-            ]
-        );
+    /**
+     * Turunkan seluruh jendela akademik dari rentang semester itu sendiri.
+     *
+     * @return array<string, string>
+     */
+    private function buildAcademicWindows(Carbon $start, Carbon $end, Carbon $today): array
+    {
+        $start = $start->copy()->startOfDay();
+        $end = $end->copy()->startOfDay();
+        $length = max(1, (int) $start->diffInDays($end));
 
-        Semester::firstOrCreate(
-            [
-                'academic_year_id' => $ayPast->id,
-                'name' => 'Ganjil 2024/2025',
-            ],
-            [
-                'type' => SemesterType::GANJIL,
-                'start_date' => '2024-09-01',
-                'end_date' => '2025-01-31',
-                'status' => AcademicStatus::INACTIVE,
-            ]
-        );
+        // KRS dibuka bersamaan dengan awal semester dan ditutup ~3 minggu kemudian.
+        $krsStart = $start->copy();
+        $krsEnd = $this->clamp($start->copy()->addDays(21), $start, $end);
 
-        Semester::firstOrCreate(
-            [
-                'academic_year_id' => $ayPast->id,
-                'name' => 'Genap 2024/2025',
-            ],
-            [
-                'type' => SemesterType::GENAP,
-                'start_date' => '2025-02-01',
-                'end_date' => '2025-06-30',
-                'status' => AcademicStatus::INACTIVE,
-            ]
-        );
+        // Untuk semester yang sedang berjalan, pastikan jendela KRS masih mencakup
+        // hari ini supaya data seed langsung dapat dipakai (batal-tambah/perpanjangan).
+        if ($today->betweenIncluded($start, $end) && $today->greaterThan($krsEnd)) {
+            $krsEnd = $this->clamp($today->copy()->addDays(14), $start, $end);
+        }
+
+        // KPRS (perubahan KRS) menyusul tepat setelah KRS ditutup.
+        $kprsStart = $this->clamp($krsEnd->copy()->addDay(), $start, $end);
+        $kprsEnd = $this->clamp($kprsStart->copy()->addDays(7), $start, $end);
+
+        // UTS di tengah periode, UAS pada pekan terakhir semester.
+        $utsStart = $this->clamp($start->copy()->addDays((int) floor($length * 0.45)), $start, $end);
+        $utsEnd = $this->clamp($utsStart->copy()->addDays(7), $start, $end);
+        $uasEnd = $end->copy();
+        $uasStart = $this->clamp($end->copy()->subDays(7), $start, $end);
+
+        // Perkuliahan berjalan sejak awal semester hingga sehari sebelum UAS.
+        $lectureStart = $start->copy();
+        $lectureEnd = $this->clamp($uasStart->copy()->subDay(), $start, $end);
+
+        return [
+            'krs_start_date' => $krsStart->toDateString(),
+            'krs_end_date' => $krsEnd->toDateString(),
+            'kprs_start_date' => $kprsStart->toDateString(),
+            'kprs_end_date' => $kprsEnd->toDateString(),
+            'lecture_start_date' => $lectureStart->toDateString(),
+            'lecture_end_date' => $lectureEnd->toDateString(),
+            'uts_start_date' => $utsStart->toDateString(),
+            'uts_end_date' => $utsEnd->toDateString(),
+            'uas_start_date' => $uasStart->toDateString(),
+            'uas_end_date' => $uasEnd->toDateString(),
+        ];
+    }
+
+    private function clamp(Carbon $date, Carbon $min, Carbon $max): Carbon
+    {
+        if ($date->lessThan($min)) {
+            return $min->copy();
+        }
+
+        if ($date->greaterThan($max)) {
+            return $max->copy();
+        }
+
+        return $date->copy();
+    }
+
+    private function yearName(int $startYear): string
+    {
+        return $startYear . '/' . ($startYear + 1);
     }
 }

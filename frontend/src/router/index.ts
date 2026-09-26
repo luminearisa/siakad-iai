@@ -522,6 +522,89 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/thesis/Index.vue'),
         meta: { title: 'Tugas Akhir' },
       },
+      // MBKM (Merdeka Belajar Kampus Merdeka)
+      {
+        path: 'mbkm',
+        redirect: '/mbkm/dashboard',
+      },
+      {
+        path: 'mbkm/dashboard',
+        name: 'mbkm.dashboard',
+        component: () => import('@/pages/mbkm/dashboard/Index.vue'),
+        meta: { title: 'Dashboard MBKM' },
+      },
+      {
+        path: 'mbkm/catalog',
+        name: 'mbkm.catalog',
+        component: () => import('@/pages/mbkm/catalog/Index.vue'),
+        meta: { title: 'Katalog Program MBKM' },
+      },
+      {
+        path: 'mbkm/my',
+        name: 'mbkm.my',
+        component: () => import('@/pages/mbkm/my/Index.vue'),
+        meta: { title: 'MBKM Saya' },
+      },
+      {
+        path: 'mbkm/programs',
+        name: 'mbkm.programs',
+        component: () => import('@/pages/mbkm/programs/Index.vue'),
+        meta: { title: 'Program MBKM', permission: 'mbkm.programs.view' },
+      },
+      {
+        path: 'mbkm/programs/:id',
+        name: 'mbkm.programs.show',
+        component: () => import('@/pages/mbkm/programs/Show.vue'),
+        meta: { title: 'Detail Program MBKM', permission: 'mbkm.programs.view' },
+      },
+      {
+        path: 'mbkm/applications',
+        name: 'mbkm.applications',
+        component: () => import('@/pages/mbkm/applications/Index.vue'),
+        meta: { title: 'Pendaftar MBKM', permission: 'mbkm.applications.view' },
+      },
+      {
+        path: 'mbkm/participants',
+        name: 'mbkm.participants',
+        component: () => import('@/pages/mbkm/participants/Index.vue'),
+        meta: { title: 'Peserta MBKM', permission: 'mbkm.participants.view' },
+      },
+      {
+        path: 'mbkm/participants/:id',
+        name: 'mbkm.participants.show',
+        component: () => import('@/pages/mbkm/participants/Show.vue'),
+        meta: { title: 'Detail Peserta MBKM', permission: 'mbkm.participants.view' },
+      },
+      {
+        path: 'mbkm/monitoring',
+        name: 'mbkm.monitoring',
+        component: () => import('@/pages/mbkm/monitoring/Index.vue'),
+        meta: { title: 'Monitoring Bimbingan MBKM' },
+      },
+      {
+        path: 'mbkm/recognition',
+        name: 'mbkm.recognition',
+        component: () => import('@/pages/mbkm/recognition/Index.vue'),
+        meta: { title: 'Rekognisi SKS MBKM', permission: 'mbkm.recognition.view' },
+      },
+      {
+        path: 'mbkm/completion',
+        name: 'mbkm.completion',
+        component: () => import('@/pages/mbkm/completion/Index.vue'),
+        meta: { title: 'Penyelesaian MBKM', permission: 'mbkm.completion.view' },
+      },
+      {
+        path: 'mbkm/master',
+        name: 'mbkm.master',
+        component: () => import('@/pages/mbkm/master/Index.vue'),
+        meta: { title: 'Data Master MBKM', permission: 'mbkm.programs.manage' },
+      },
+      {
+        path: 'mbkm/reports',
+        name: 'mbkm.reports',
+        component: () => import('@/pages/mbkm/reports/Index.vue'),
+        meta: { title: 'Laporan MBKM', permission: 'mbkm.reports.view' },
+      },
       // Yudisium Submodules
       {
         path: 'graduation/yudisium',

@@ -25,6 +25,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \Modules\Identity\Middleware\CheckRole::class,
             'permission' => \Modules\Identity\Middleware\CheckPermission::class,
         ]);
+
+        $middleware->appendToGroup('api', [
+            \Modules\Identity\Middleware\EnsurePasswordIsRotated::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

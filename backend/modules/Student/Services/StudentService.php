@@ -10,6 +10,8 @@ use Modules\Student\Models\Student;
 
 class StudentService
 {
+    public ?string $generatedPassword = null;
+
     public function __construct(
         protected CreateStudentAction $createStudentAction,
         protected UpdateStudentAction $updateStudentAction,
@@ -18,7 +20,10 @@ class StudentService
 
     public function create(array $data): Student
     {
-        return $this->createStudentAction->execute($data);
+        $student = $this->createStudentAction->execute($data);
+        $this->generatedPassword = $this->createStudentAction->generatedPassword;
+
+        return $student;
     }
 
     public function update(Student $student, array $data): Student

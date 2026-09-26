@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Lock, Mail } from 'lucide-vue-next'
+import { ArrowRight, Eye, EyeOff, Lock, Mail } from 'lucide-vue-next'
 import { useAuth } from '@/composables/useAuth'
 import { useToast } from '@/composables/useToast'
 import Button from '@/components/ui/Button.vue'
@@ -20,6 +20,16 @@ const password = ref<string>('password123')
 const loading = ref<boolean>(false)
 const errorMessage = ref<string | null>(null)
 const fieldErrors = ref<Record<string, string[]>>({})
+const showPassword = ref<boolean>(false)
+
+const passwordType = computed(() => (showPassword.value ? 'text' : 'password'))
+
+const demoAccounts = [
+  { label: 'Super Admin', email: 'admin@siakad.ac.id' },
+  { label: 'Akademik', email: 'akademik@siakad.ac.id' },
+  { label: 'Dosen', email: 'dosen@siakad.ac.id' },
+  { label: 'Mahasiswa', email: 'mahasiswa@siakad.ac.id' },
+]
 
 async function handleLogin() {
   errorMessage.value = null
@@ -63,22 +73,25 @@ function setDemoAccount(userEmail: string) {
 </script>
 
 <template>
-  <div class="space-y-4">
-    <div class="text-center mb-5">
-      <h3 class="text-base font-bold text-slate-900 tracking-tight">
-        Masuk ke Portal Akademik
-      </h3>
-      <p class="text-xs text-slate-500 mt-0.5">
-        Silakan masukkan email dan password akun Anda
+  <div>
+    <header class="mb-6">
+      <h2 class="text-lg font-bold tracking-tight text-slate-900">Masuk ke Akun Anda</h2>
+      <p class="mt-1 text-xs text-slate-500">
+        Gunakan email institusi dan kata sandi yang telah terdaftar.
       </p>
-    </div>
+    </header>
 
-    <!-- Error Alert -->
-    <Alert v-if="errorMessage" variant="danger" dismissible @dismiss="errorMessage = null">
+    <Alert
+      v-if="errorMessage"
+      variant="danger"
+      dismissible
+      class="mb-4"
+      @dismiss="errorMessage = null"
+    >
       {{ errorMessage }}
     </Alert>
 
-    <form class="space-y-3.5" @submit.prevent="handleLogin">
+    <form class="space-y-4" @submit.prevent="handleLogin">
       <FormField
         id="email"
         label="Alamat Email"
@@ -93,10 +106,10 @@ function setDemoAccount(userEmail: string) {
           autocomplete="email"
           required
           :disabled="loading"
-          size="md"
+          size="lg"
         >
           <template #prefix>
-            <Mail class="w-3.5 h-3.5" />
+            <Mail class="h-4 w-4" />
           </template>
         </Input>
       </FormField>
@@ -110,64 +123,49 @@ function setDemoAccount(userEmail: string) {
         <Input
           id="password"
           v-model="password"
-          type="password"
+          :type="passwordType"
           placeholder="••••••••"
           autocomplete="current-password"
           required
           :disabled="loading"
-          size="md"
+          size="lg"
         >
           <template #prefix>
-            <Lock class="w-3.5 h-3.5" />
+            <Lock class="h-4 w-4" />
+          </template>
+          <template #suffix>
+            <button
+              type="button"
+              class="pointer-events-auto -mr-1 rounded-sm p-1 text-slate-400 outline-none transition-colors hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-brand-500"
+              :aria-label="showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'"
+              :tabindex="loading ? -1 : 0"
+              @click="showPassword = !showPassword"
+            >
+              <component :is="showPassword ? EyeOff : Eye" class="h-4 w-4" />
+            </button>
           </template>
         </Input>
       </FormField>
 
-      <Button
-        type="submit"
-        variant="primary"
-        size="md"
-        block
-        :loading="loading"
-        class="mt-4"
-      >
-        Masuk ke Akun
+      <Button type="submit" variant="primary" size="lg" block :loading="loading" class="mt-1">
+        <span>Masuk</span>
+        <ArrowRight v-if="!loading" class="h-4 w-4" />
       </Button>
     </form>
 
-    <!-- Demo Accounts Quick Switcher -->
-    <div class="pt-4 border-t border-slate-100 mt-4 text-center">
-      <p class="text-2xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-        Kredensial Demo Cepat:
+    <div class="mt-6 border-t border-slate-100 pt-5">
+      <p class="mb-2.5 text-2xs font-semibold uppercase tracking-wider text-slate-400">
+        Akses Cepat Akun Demo
       </p>
-      <div class="flex flex-wrap items-center justify-center gap-1.5">
+      <div class="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
         <button
+          v-for="account in demoAccounts"
+          :key="account.email"
           type="button"
-          class="text-2xs px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-medium transition-colors cursor-pointer"
-          @click="setDemoAccount('admin@siakad.ac.id')"
+          class="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-2xs font-medium text-slate-600 transition-colors hover:border-brand-300 hover:bg-brand-50 hover:text-brand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          @click="setDemoAccount(account.email)"
         >
-          Super Admin
-        </button>
-        <button
-          type="button"
-          class="text-2xs px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-medium transition-colors cursor-pointer"
-          @click="setDemoAccount('akademik@siakad.ac.id')"
-        >
-          Admin Akademik
-        </button>
-        <button
-          type="button"
-          class="text-2xs px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-medium transition-colors cursor-pointer"
-          @click="setDemoAccount('dosen@siakad.ac.id')"
-        >
-          Dosen
-        </button>
-        <button
-          type="button"
-          class="text-2xs px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-medium transition-colors cursor-pointer"
-          @click="setDemoAccount('mahasiswa@siakad.ac.id')"
-        >
-          Mahasiswa
+          {{ account.label }}
         </button>
       </div>
     </div>

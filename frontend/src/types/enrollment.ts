@@ -13,7 +13,13 @@ export type EnrollmentStatus =
   | 'cancelled'
   | 'locked'
 
-export type EnrollmentItemStatus = 'enrolled' | 'dropped' | 'approved' | 'rejected'
+/**
+ * Status satu baris mata kuliah di dalam KRS.
+ * `dropped` = batal-tambah resmi dari KRS yang sudah disetujui/dikunci,
+ * `cancelled` = dibatalkan sewaktu KRS masih berstatus draf. Keduanya disimpan
+ * sebagai jejak audit dan tidak lagi dihitung sebagai beban studi.
+ */
+export type EnrollmentItemStatus = 'enrolled' | 'dropped' | 'cancelled' | 'approved' | 'rejected'
 
 export interface StudentEnrollment {
   id: number
@@ -21,6 +27,10 @@ export interface StudentEnrollment {
   semester_id: number
   status: EnrollmentStatus
   total_credits: number
+  /**
+   * Kuota SKS yang benar-benar berlaku untuk mahasiswa ini: hasil jenjang IPS
+   * (`credit_limits.rules`) atau kuota yang disesuaikan Bagian Akademik.
+   */
   max_credits?: number
   academic_advisor?: string | null
   academic_advisor_id?: number | null
@@ -32,7 +42,10 @@ export interface StudentEnrollment {
   student?: Student | null
   semester?: Semester | null
   items?: StudentEnrollmentItem[]
+  /** Jumlah mata kuliah yang masih aktif (baris batal-tambah tidak dihitung). */
   items_count?: number
+  /** Jumlah mata kuliah yang sudah dibatalkan/di-drop. */
+  dropped_items_count?: number
   created_at: string
   updated_at?: string
 }

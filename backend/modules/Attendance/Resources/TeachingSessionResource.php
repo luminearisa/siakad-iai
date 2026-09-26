@@ -4,12 +4,18 @@ namespace Modules\Attendance\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Attendance\Support\AttendanceAccess;
 use Modules\Lecturer\Resources\LecturerResource;
 
 class TeachingSessionResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        // Token presensi adalah bukti kehadiran fisik. Ia hanya boleh dilihat oleh
+        // pengampu/staf — kalau ikut terkirim ke daftar sesi, mahasiswa bisa
+        // menyalin kode kelas lain dan hadir tanpa masuk kelas.
+        $canManage = AttendanceAccess::mayManageSession($request->user(), $this->resource);
+
         return [
             'id' => $this->id,
             'academic_class_id' => $this->academic_class_id,
@@ -26,13 +32,15 @@ class TeachingSessionResource extends JsonResource
             'room_id' => $this->room_id,
             'status' => $this->status?->value ?? $this->status,
             'status_label' => $this->status?->label(),
-            'check_in_code' => $this->check_in_code,
-            'check_in_expires_at' => $this->check_in_expires_at?->toISOString(),
-            'is_check_in_active' => $this->check_in_code && $this->check_in_expires_at && $this->check_in_expires_at->isFuture(),
+            'is_check_in_active' => (bool) ($this->check_in_code && $this->check_in_expires_at && $this->check_in_expires_at->isFuture()),
+            'can_manage' => $canManage,
+            'check_in_code' => $this->when($canManage, $this->check_in_code),
+            'check_in_expires_at' => $this->when($canManage, fn () => $this->check_in_expires_at?->toISOString()),
             'academic_class' => $this->whenLoaded('academicClass'),
             'lecturer' => $this->whenLoaded('lecturer', fn () => new LecturerResource($this->lecturer)),
             'room' => $this->whenLoaded('room'),
             'attendances_count' => $this->whenCounted('attendances', $this->attendances_count),
+            'recorded_count' => $this->when(isset($this->recorded_count), $this->recorded_count),
             'present_count' => $this->when(isset($this->present_count), $this->present_count),
             'permit_count' => $this->when(isset($this->permit_count), $this->permit_count),
             'sick_count' => $this->when(isset($this->sick_count), $this->sick_count),

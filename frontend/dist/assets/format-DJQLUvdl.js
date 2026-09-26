@@ -1,0 +1,1 @@
+function e(r){if(!r)return"-";try{const t=new Date(r);return new Intl.DateTimeFormat("id-ID",{day:"numeric",month:"short",year:"numeric"}).format(t)}catch{return r}}function n(r){return r?r.substring(0,5):"-"}export{n as a,e as f};

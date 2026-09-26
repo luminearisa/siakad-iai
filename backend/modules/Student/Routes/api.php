@@ -6,10 +6,12 @@ use Modules\Student\Controllers\StudentPortalController;
 
 Route::middleware('auth:sanctum')->group(function () {
     // Student Portal (Self-Service)
-    Route::get('students/me/profile', [StudentPortalController::class, 'profile']);
-    Route::get('students/me/khs', [StudentPortalController::class, 'khs']);
-    Route::get('students/me/schedules', [StudentPortalController::class, 'schedules']);
-    Route::post('students/me/request-update', [StudentPortalController::class, 'requestUpdate']);
+    Route::middleware('role:mahasiswa')->group(function () {
+        Route::get('students/me/profile', [StudentPortalController::class, 'profile']);
+        Route::get('students/me/khs', [StudentPortalController::class, 'khs']);
+        Route::get('students/me/schedules', [StudentPortalController::class, 'schedules']);
+        Route::post('students/me/request-update', [StudentPortalController::class, 'requestUpdate']);
+    });
 
     // Admin & Staff Student Management
     Route::get('students', [StudentController::class, 'index'])->middleware('permission:students.view');

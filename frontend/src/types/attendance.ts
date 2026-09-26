@@ -4,8 +4,46 @@ import type { Room } from './room'
 import type { Student } from './student'
 
 export type AttendanceStatusCode = 'present' | 'permit' | 'sick' | 'absent'
+
+/**
+ * Status on the attendance sheet / a student's meeting history.
+ *
+ * `null` is a real state meaning "belum dicatat": the student is on the roster
+ * but no record has been saved for that meeting yet. The backend used to fake
+ * this as `present` (sheet) or `absent` (student history); never infer a value
+ * for a null status again.
+ */
+export type AttendanceSheetStatus = AttendanceStatusCode | null
+
 export type TeachingMethodType = 'offline' | 'online' | 'hybrid'
 export type SessionStatusType = 'scheduled' | 'open' | 'closed' | 'cancelled'
+
+/** Which exam the attendance threshold gates: UTS (mid) or UAS (final). */
+export type AttendanceThresholdStage = 'uts' | 'uas'
+
+/**
+ * Statuses whose server-side validation demands a note: a permit, sick leave or
+ * absence without an explanation is rejected with 422. Kept here so the input
+ * sheet, the badges and the tests share one definition.
+ */
+export const NOTE_REQUIRED_STATUSES: readonly AttendanceStatusCode[] = [
+  'permit',
+  'sick',
+  'absent',
+]
+
+export function requiresNotes(status: AttendanceSheetStatus): boolean {
+  return status !== null && NOTE_REQUIRED_STATUSES.includes(status)
+}
+
+export const ATTENDANCE_STATUS_LABELS: Record<AttendanceStatusCode, string> = {
+  present: 'Hadir',
+  permit: 'Izin',
+  sick: 'Sakit',
+  absent: 'Alpa',
+}
+
+export const UNRECORDED_LABEL = 'Belum dicatat'
 
 export interface TeachingSession {
   id: number
@@ -23,12 +61,21 @@ export interface TeachingSession {
   room_id?: number | null
   status: SessionStatusType
   status_label?: string
+  /**
+   * Only sent to the session's lecturer or to staff. Students must not read a
+   * code: gate every "show / copy the token" affordance on `can_manage`.
+   */
   check_in_code?: string | null
+  /** Only sent to the session's lecturer or to staff, see `check_in_code`. */
   check_in_expires_at?: string | null
+  /** Sent to every role: is the self check-in window open right now? */
   is_check_in_active?: boolean
+  /** Sent to every role: may the current user record/manage this session? */
+  can_manage?: boolean
   academic_class?: AcademicClass
   lecturer?: Lecturer
   room?: Room
+  /** Number of saved attendance rows, excluding unrecorded roster members. */
   attendances_count?: number
   present_count?: number
   permit_count?: number
@@ -57,12 +104,6 @@ export interface StudentAttendance {
   updated_at: string
 }
 
-export interface SessionStudentItem {
-  student_id: number
-  status: AttendanceStatusCode
-  notes?: string
-}
-
 /**
  * One row of the lecturer's attendance sheet: the class roster merged with any
  * records already saved for the session, so every enrolled student is present
@@ -74,9 +115,10 @@ export interface AttendanceSheetRow {
   teaching_session_id: number
   student_id: number
   academic_class_id: number
-  status: AttendanceStatusCode
-  status_label?: string
-  status_code?: string
+  /** Null means the meeting has not been recorded for this student yet. */
+  status: AttendanceSheetStatus
+  status_label?: string | null
+  status_code?: string | null
   notes?: string | null
   attachment_path?: string | null
   recorded_by?: number | null
@@ -90,8 +132,42 @@ export interface AttendanceSheetRow {
   updated_at?: string | null
 }
 
+/** One entry of the `record-batch` payload. Unrecorded rows are never sent. */
+export interface BatchAttendanceItem {
+  student_id: number
+  status: AttendanceStatusCode
+  notes?: string | null
+}
+
 export interface BatchAttendancePayload {
-  attendances: SessionStudentItem[]
+  attendances: BatchAttendanceItem[]
+  /**
+   * Mandatory once the session is `closed`; the server answers 422 without it.
+   * Omitted for open/scheduled sessions.
+   */
+  correction_reason?: string
+}
+
+/** Body of `PATCH sessions/{s}/students/{st}`. */
+export interface SingleAttendancePayload {
+  status: AttendanceStatusCode
+  notes?: string | null
+}
+
+/** Body of `POST sessions/{id}/reopen`. The reason is mandatory server-side. */
+export interface ReopenSessionPayload {
+  reason: string
+}
+
+/**
+ * Result of `POST classes/{id}/sync-sessions`: sessions regenerated from the
+ * class schedule. The response body is not fixed by the contract, so callers
+ * reload their data instead of trusting these fields.
+ */
+export interface SyncClassSessionsResult {
+  sessions?: TeachingSession[]
+  created_count?: number
+  total_sessions?: number
 }
 
 export interface TeachingSessionPayload {
@@ -114,6 +190,15 @@ export interface SelfCheckInPayload {
   check_in_code: string
 }
 
+export interface ClassRecapMeetingCell {
+  session_id: number
+  meeting_number: number
+  session_date: string
+  status: AttendanceSheetStatus
+  status_code: string
+  notes?: string | null
+}
+
 export interface ClassRecapMatrixStudent {
   student: {
     id: number
@@ -126,17 +211,12 @@ export interface ClassRecapMatrixStudent {
   permit_count: number
   sick_count: number
   absent_count: number
+  /** Meetings of this student that still have no record at all. */
+  unrecorded_count: number
   total_meetings: number
   percentage: number
   is_eligible: boolean
-  meetings: Record<number, {
-    session_id: number
-    meeting_number: number
-    session_date: string
-    status: AttendanceStatusCode | null
-    status_code: string
-    notes?: string | null
-  }>
+  meetings: Record<number, ClassRecapMeetingCell>
 }
 
 export interface ClassAttendanceRecap {
@@ -154,11 +234,42 @@ export interface ClassAttendanceRecap {
     semester?: {
       id: number
       name: string
+      /** Teaching weeks configured on the semester; drives the meeting target. */
+      total_teaching_weeks?: number
+      min_attendance_uts_percentage?: number
+      min_attendance_uas_percentage?: number
     }
   }
+  /** Sessions created for the class, including meetings that have not run yet. */
   total_sessions: number
+  /** Sessions that actually took place, i.e. the denominator of the recap. */
+  held_sessions: number
+  /** Server-owned threshold for exam eligibility. Never hardcode a number. */
+  min_attendance_percentage: number
+  /** Which threshold (UTS / UAS) the server applied. */
+  threshold_stage: AttendanceThresholdStage
   sessions: TeachingSession[]
   recap: ClassRecapMatrixStudent[]
+}
+
+export interface StudentMeetingRecord {
+  session_id: number
+  meeting_number: number
+  session_date?: string | null
+  start_time?: string | null
+  end_time?: string | null
+  topic?: string | null
+  teaching_method?: string
+  teaching_method_label?: string
+  lecturer_name?: string
+  room?: string
+  /** Null when the meeting has not been recorded (or has not run) yet. */
+  status: AttendanceSheetStatus
+  status_label?: string | null
+  status_code: string
+  notes?: string | null
+  /** The student may still check themselves into this meeting. */
+  is_check_in_active?: boolean
 }
 
 export interface StudentCourseAttendance {
@@ -178,23 +289,9 @@ export interface StudentCourseAttendance {
   absent_count: number
   percentage: number
   is_eligible: boolean
-  meetings: Array<{
-    session_id: number
-    meeting_number: number
-    session_date?: string | null
-    start_time?: string | null
-    end_time?: string | null
-    topic?: string | null
-    teaching_method?: string
-    teaching_method_label?: string
-    lecturer_name?: string
-    room?: string
-    status: AttendanceStatusCode
-    status_label: string
-    status_code: string
-    notes?: string | null
-    is_check_in_active?: boolean
-  }>
+  /** Per-course threshold applied by the server for `is_eligible`. */
+  min_attendance_percentage: number
+  meetings: StudentMeetingRecord[]
 }
 
 export interface StudentAttendanceRecap {
@@ -213,8 +310,29 @@ export interface StudentAttendanceRecap {
     total_absent: number
     overall_percentage: number
     is_eligible_overall: boolean
+    /** Server-owned threshold behind `is_eligible_overall`. */
+    min_attendance_percentage: number
+    /** Which threshold (UTS / UAS) the server applied. */
+    threshold_stage: AttendanceThresholdStage
   }
   classes: StudentCourseAttendance[]
+}
+
+/**
+ * A meeting the student can still check into by themselves, derived from
+ * `my-attendance` so the student never has to type a session id and never sees
+ * a check-in code (students do not receive one).
+ */
+export interface CheckInOption {
+  session_id: number
+  class_id: number
+  course_label: string
+  section?: string
+  meeting_number: number
+  session_date?: string | null
+  start_time?: string | null
+  end_time?: string | null
+  topic?: string | null
 }
 
 export interface AttendanceFilters {
