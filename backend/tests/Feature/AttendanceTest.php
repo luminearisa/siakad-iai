@@ -298,23 +298,34 @@ class AttendanceTest extends TestCase
 
     public function test_session_status_transitions_are_constrained(): void
     {
-        // scheduled → cancelled boleh; cancelled → open hanya lewat scheduled.
-        $this->asDosen('PUT', "/api/v1/attendance/sessions/{$this->openSession->id}", [
+        $payload = fn (array $extra) => [
             'academic_class_id' => $this->ownClass->id,
             'lecturer_id' => $this->lecturer->id,
             'meeting_number' => 8,
             'session_date' => $this->openSession->session_date->format('Y-m-d'),
-            'status' => 'closed',
-        ])->assertStatus(200)->assertJsonPath('data.status', 'closed');
+        ] + $extra;
 
-        // closed → scheduled tidak diizinkan.
-        $this->asDosen('PUT', "/api/v1/attendance/sessions/{$this->openSession->id}", [
-            'academic_class_id' => $this->ownClass->id,
-            'lecturer_id' => $this->lecturer->id,
-            'meeting_number' => 8,
-            'session_date' => $this->openSession->session_date->format('Y-m-d'),
+        // open → closed diizinkan.
+        $this->asDosen('PUT', "/api/v1/attendance/sessions/{$this->openSession->id}", $payload(['status' => 'closed']))
+            ->assertStatus(200)
+            ->assertJsonPath('data.status', 'closed');
+
+        // Sesi terkunci: perubahan apa pun butuh alasan koreksi.
+        $this->asDosen('PUT', "/api/v1/attendance/sessions/{$this->openSession->id}", $payload(['status' => 'scheduled']))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('correction_reason');
+
+        // closed → scheduled tetap bukan transisi yang sah.
+        $this->asDosen('PUT', "/api/v1/attendance/sessions/{$this->openSession->id}", $payload([
             'status' => 'scheduled',
-        ])->assertStatus(422)->assertJsonValidationErrors('status');
+            'correction_reason' => 'Perlu memperbaiki nomor pertemuan.',
+        ]))->assertStatus(422)->assertJsonValidationErrors('status');
+
+        // closed → open sah, dan tidak bisa dilewatkan lewat PUT tanpa state machine.
+        $this->asDosen('PUT', "/api/v1/attendance/sessions/{$this->openSession->id}", $payload([
+            'status' => 'open',
+            'correction_reason' => 'Presensi belum lengkap.',
+        ]))->assertStatus(200)->assertJsonPath('data.status', 'open');
     }
 
     public function test_reopen_session_requires_a_reason(): void
@@ -521,7 +532,7 @@ class AttendanceTest extends TestCase
         $class = collect($this->asStudent('GET', '/api/v1/attendance/my-attendance')->json('data.classes'))
             ->firstWhere('class_code', $this->ownClass->code);
 
-        $this->assertSame(0.0, $class['percentage']);
+        $this->assertSame(0.0, (float) $class['percentage']);
         $this->assertFalse($class['is_eligible']);
         $this->assertSame(8, $class['unrecorded_count']);
         $this->assertSame(8, $class['absent_count']);
