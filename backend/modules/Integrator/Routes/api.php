@@ -5,6 +5,7 @@ use Modules\Integrator\Controllers\ApiClientController;
 use Modules\Integrator\Controllers\ApiKeyController;
 use Modules\Integrator\Controllers\ApiRequestLogController;
 use Modules\Integrator\Controllers\IntegrationController;
+use Modules\Integrator\Controllers\IntegratorExportController;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,6 +27,19 @@ use Modules\Integrator\Controllers\IntegrationController;
 Route::middleware('auth:sanctum')->prefix('integrator')->group(function () {
     // Available scopes for the key picker.
     Route::get('scopes', [ApiKeyController::class, 'scopes'])
+        ->middleware('permission:integrator.keys.view');
+
+    // Unduhan data pelaporan PDDikti / Neo Feeder ("Export as…").
+    //
+    // Didaftarkan SEBELUM `clients/{client}` supaya `/clients/export` tidak
+    // tertangkap sebagai route parameter.
+    Route::get('logs/export', [IntegratorExportController::class, 'logs'])
+        ->middleware('permission:integrator.logs.view');
+    Route::get('logs/summary/export', [IntegratorExportController::class, 'summary'])
+        ->middleware('permission:integrator.logs.view');
+    Route::get('clients/export', [IntegratorExportController::class, 'clients'])
+        ->middleware('permission:integrator.clients.view');
+    Route::get('keys/export', [IntegratorExportController::class, 'keys'])
         ->middleware('permission:integrator.keys.view');
 
     // Clients (the systems allowed to pull data).

@@ -8,6 +8,7 @@ import type { ApiClient, ApiKey, ApiKeyScopeCatalog, ApiClientPayload } from '@/
 import PageContainer from '@/components/data-display/PageContainer.vue'
 import PageHeader from '@/components/data-display/PageHeader.vue'
 import DataTable, { type Column } from '@/components/data-display/DataTable.vue'
+import ExportMenu, { type ExportOption } from '@/components/data-display/ExportMenu.vue'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
@@ -333,6 +334,45 @@ function statusVariant(status: string): 'success' | 'danger' | 'warning' | 'neut
   }
 }
 
+/**
+ * Unduhan daftar klien & kunci API — berkas pendukung saat audit akses data
+ * PDDikti/Neo Feeder. Bila satu klien sedang dibuka kuncinya, kunci klien itu
+ * bisa diunduh terpisah.
+ */
+const exportOptions = computed<ExportOption[]>(() => {
+  const options: ExportOption[] = [
+    {
+      label: 'Klien integrasi — CSV (Excel)',
+      description: 'Termasuk jumlah kunci dan kunci aktif',
+      run: () => integratorService.exportClients('csv'),
+    },
+    {
+      label: 'Klien integrasi — JSON',
+      description: 'Arsip terstruktur untuk tim integrator',
+      run: () => integratorService.exportClients('json'),
+    },
+    {
+      label: 'Semua kunci API — CSV (Excel)',
+      description: 'Prefix, scope, masa berlaku, pemakaian terakhir (tanpa token)',
+      run: () => integratorService.exportKeys({}, 'csv'),
+    },
+    {
+      label: 'Semua kunci API — JSON',
+      run: () => integratorService.exportKeys({}, 'json'),
+    },
+  ]
+
+  if (selectedClient.value) {
+    options.splice(2, 0, {
+      label: `Kunci: ${selectedClient.value.name} — CSV (Excel)`,
+      description: 'Hanya kunci milik klien yang sedang dibuka',
+      run: () => integratorService.exportKeys({ api_client_id: selectedClient.value?.id }, 'csv'),
+    })
+  }
+
+  return options
+})
+
 onMounted(async () => {
   await Promise.all([fetchClients(), fetchScopes()])
 })
@@ -345,6 +385,7 @@ onMounted(async () => {
       subtitle="Sistem eksternal yang boleh menarik data SIAKAD (mis. integrator Neo Feeder PDDikti) beserta kredensialnya."
     >
       <template #actions>
+        <ExportMenu :options="exportOptions" :disabled="loading" />
         <Button v-if="canManageClients" variant="primary" size="sm" @click="openCreateClient">
           <Plus class="w-4 h-4 mr-1" />
           Tambah Klien

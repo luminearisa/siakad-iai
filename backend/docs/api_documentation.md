@@ -416,6 +416,21 @@ Dua permukaan terpisah:
 * **DELETE `/api/v1/integrator/keys/{key}`** — hapus kunci yang sudah dicabut.
 * **GET `/api/v1/integrator/logs`** · **GET `/api/v1/integrator/logs/stats`** — log & statistik.
 
+Unduhan data pelaporan ("Export as…", CSV/JSON) untuk halaman integrasi:
+
+* **GET `/api/v1/integrator/logs/export`** — log permintaan API, mengikuti filter
+  `api_client_id`, `api_key_id`, `method`, `status_code`, `successful`, `from`,
+  `to`, `search` (permission `integrator.logs.view`).
+* **GET `/api/v1/integrator/logs/summary/export`** — rekap harian per klien
+  (jumlah permintaan, 2xx/4xx/5xx, rata-rata durasi) dengan filter yang sama.
+* **GET `/api/v1/integrator/clients/export`** — daftar klien + ringkasan kunci
+  (permission `integrator.clients.view`).
+* **GET `/api/v1/integrator/keys/export`** — daftar kunci API (prefix, scope,
+  status, masa berlaku) tanpa token/hash (permission `integrator.keys.view`).
+
+Semua menerima `format=csv` (bawaan, UTF-8 + BOM) atau `format=json`; batas 50.000
+baris per berkas diumumkan lewat header `X-Export-Row-Limit`.
+
 Catatan payload untuk pelaporan PDDikti:
 
 * endpoint mahasiswa (`/v1/students`) menyertakan `nik`, `nisn`, `email`, `phone`, dan

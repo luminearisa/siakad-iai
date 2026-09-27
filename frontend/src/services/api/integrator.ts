@@ -10,6 +10,9 @@ import type {
   IssuedApiKey,
 } from '@/types/integrator'
 
+/** Format berkas unduhan pada halaman integrasi. */
+export type ExportFormat = 'csv' | 'json'
+
 /**
  * Integrator module API: external systems that may pull SIAKAD data, the API keys
  * they authenticate with, and the audit log of every request they made.
@@ -67,5 +70,35 @@ export const integratorService = {
   },
   logStats(params?: { days?: number }): Promise<ApiResponse<IntegratorLogStats>> {
     return apiClient.get<IntegratorLogStats>('/integrator/logs/stats', params)
+  },
+
+  // Unduhan ("Export as…") ---------------------------------------------------
+  //
+  // Berkas yang dihasilkan dipakai sebagai bukti/lampiran pelaporan PDDikti:
+  // CSV untuk dibuka di Excel, JSON untuk diarsipkan atau diserahkan ke tim
+  // integrator. Filter yang dikirim sama dengan yang sedang tampil di layar.
+  /** Log akses integrasi sesuai filter di layar. */
+  exportLogs(params: Record<string, unknown> = {}, format: ExportFormat = 'csv'): Promise<void> {
+    return apiClient.download(
+      '/integrator/logs/export',
+      { ...params, format },
+      `log-integrasi-pddikti.${format}`
+    )
+  },
+  /** Rekap harian per klien (jumlah permintaan, keberhasilan, 4xx/5xx, durasi). */
+  exportLogSummary(params: Record<string, unknown> = {}, format: ExportFormat = 'csv'): Promise<void> {
+    return apiClient.download(
+      '/integrator/logs/summary/export',
+      { ...params, format },
+      `rekap-integrasi-pddikti.${format}`
+    )
+  },
+  /** Daftar klien integrasi + ringkasan kuncinya. */
+  exportClients(format: ExportFormat = 'csv'): Promise<void> {
+    return apiClient.download('/integrator/clients/export', { format }, `klien-integrasi-pddikti.${format}`)
+  },
+  /** Daftar kunci API (prefix, scope, masa berlaku) — tanpa token rahasia. */
+  exportKeys(params: Record<string, unknown> = {}, format: ExportFormat = 'csv'): Promise<void> {
+    return apiClient.download('/integrator/keys/export', { ...params, format }, `kunci-integrasi-pddikti.${format}`)
   },
 }

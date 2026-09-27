@@ -137,3 +137,36 @@ curl "$SIAKAD_BASE_URL/api/v1/integrator/v1/students?per_page=50" \
 ```bash
 php artisan test --filter=IntegratorTest
 ```
+
+## Unduhan data pelaporan ("Export as…")
+
+Halaman **Klien & Kunci API** dan **Log Akses Integrasi** menyediakan tombol
+`Export as…` untuk mengunduh data yang berkaitan dengan pelaporan PDDikti /
+Neo Feeder. Semua endpoint memakai filter yang sama dengan tampilan di layar,
+sehingga isi berkas bisa dipertanggungjawabkan saat audit.
+
+| Endpoint | Isi | Permission |
+|---|---|---|
+| `GET /api/v1/integrator/logs/export` | Log permintaan API (waktu, klien, prefix kunci, endpoint, status, durasi, IP, pesan galat) | `integrator.logs.view` |
+| `GET /api/v1/integrator/logs/summary/export` | Rekap harian per klien: jumlah permintaan, 2xx, 4xx, 5xx, rata-rata durasi | `integrator.logs.view` |
+| `GET /api/v1/integrator/clients/export` | Klien integrasi + jumlah kunci/kunci aktif + pemakaian terakhir | `integrator.clients.view` |
+| `GET /api/v1/integrator/keys/export` | Kunci API: prefix, scope, status, masa berlaku, pemakaian terakhir | `integrator.keys.view` |
+
+Parameter:
+
+* `format=csv` (bawaan) — CSV UTF-8 dengan BOM supaya langsung rapi di Excel;
+* `format=json` — `{"meta": …, "headers": […], "data": […], "rows": n}`;
+* filter log: `api_client_id`, `api_key_id`, `method`, `status_code`, `successful`,
+  `from`, `to`, `search`; filter kunci: `api_client_id`, `status` (`active`,
+  `revoked`, `expired`).
+
+Pengamanan:
+
+* **rahasia tidak pernah ikut** — kunci API hanya diwakili `key_prefix`, hash token
+  tidak pernah ditulis ke berkas;
+* sel yang diawali `=`, `+`, `-`, atau `@` diberi kutip di depan agar tidak
+  dieksekusi sebagai rumus saat dibuka di Excel (CSV injection);
+* satu berkas dibatasi `IntegratorExportService::MAX_ROWS` (50.000 baris) dan
+  batas itu diumumkan lewat header `X-Export-Row-Limit`;
+* setiap unduhan dicatat pada log aplikasi (`integrator.export`) berisi dataset,
+  filter, dan siapa yang mengunduh.

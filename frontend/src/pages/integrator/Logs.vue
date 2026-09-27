@@ -7,6 +7,7 @@ import type { ApiClient, ApiRequestLog, IntegratorLogStats } from '@/types/integ
 import PageContainer from '@/components/data-display/PageContainer.vue'
 import PageHeader from '@/components/data-display/PageHeader.vue'
 import DataTable, { type Column } from '@/components/data-display/DataTable.vue'
+import ExportMenu, { type ExportOption } from '@/components/data-display/ExportMenu.vue'
 import Pagination from '@/components/data-display/Pagination.vue'
 import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -65,6 +66,43 @@ function errorMessage(error: unknown, fallback: string): string {
   const err = error as { message?: string }
   return err?.message || fallback
 }
+
+/**
+ * Filter yang sedang aktif dipakai ulang untuk unduhan, sehingga isi berkas CSV/JSON
+ * persis sama dengan tabel di layar (dan bisa dipertanggungjawabkan saat audit).
+ */
+function exportParams(): Record<string, unknown> {
+  return {
+    api_client_id: filters.api_client_id || undefined,
+    successful: filters.status === '' ? undefined : filters.status === 'success',
+    search: filters.search || undefined,
+    from: filters.from || undefined,
+    to: filters.to || undefined,
+  }
+}
+
+const exportOptions = computed<ExportOption[]>(() => [
+  {
+    label: 'Log akses — CSV (Excel)',
+    description: `Mengikuti filter aktif (${meta.total} baris)`,
+    run: () => integratorService.exportLogs(exportParams(), 'csv'),
+  },
+  {
+    label: 'Log akses — JSON',
+    description: 'Arsip terstruktur: meta, filter, dan seluruh baris',
+    run: () => integratorService.exportLogs(exportParams(), 'json'),
+  },
+  {
+    label: 'Rekap harian per klien — CSV (Excel)',
+    description: 'Jumlah permintaan, keberhasilan, galat 4xx/5xx, rata-rata durasi',
+    run: () => integratorService.exportLogSummary(exportParams(), 'csv'),
+  },
+  {
+    label: 'Rekap harian per klien — JSON',
+    description: 'Untuk diolah skrip atau diserahkan ke tim integrator',
+    run: () => integratorService.exportLogSummary(exportParams(), 'json'),
+  },
+])
 
 function formatDate(value?: string | null): string {
   if (!value) return '-'
@@ -154,6 +192,7 @@ onMounted(async () => {
       subtitle="Setiap permintaan ke endpoint integrasi — termasuk yang ditolak karena scope, IP, atau rate limit."
     >
       <template #actions>
+        <ExportMenu :options="exportOptions" :disabled="loading" />
         <Button variant="secondary" size="sm" :loading="loading" @click="refreshAll">
           <RefreshCw class="w-4 h-4 mr-1" />
           Muat ulang
@@ -212,7 +251,9 @@ onMounted(async () => {
           Terapkan
         </Button>
         <Button variant="outline" size="sm" @click="resetFilters">Reset</Button>
-        <span class="text-2xs text-slate-500">{{ meta.total }} baris</span>
+        <span class="text-2xs text-slate-500">
+          {{ meta.total }} baris &middot; unduhan "Export as…" mengikuti filter ini
+        </span>
       </div>
     </Card>
 
