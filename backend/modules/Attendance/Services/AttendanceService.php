@@ -11,6 +11,7 @@ use Modules\Attendance\Enums\AttendanceStatus;
 use Modules\Attendance\Enums\SessionStatus;
 use Modules\Attendance\Models\StudentAttendance;
 use Modules\Attendance\Models\TeachingSession;
+use Modules\Attendance\Resources\TeachingSessionRecapResource;
 use Modules\Attendance\Resources\TeachingSessionResource;
 use Modules\Attendance\Support\AttendanceAccess;
 use Modules\Attendance\Support\AttendancePolicy;
@@ -622,7 +623,7 @@ class AttendanceService
             'held_sessions' => count($heldIds),
             'threshold_stage' => $threshold['stage'],
             'min_attendance_percentage' => $threshold['percentage'],
-            'sessions' => TeachingSessionResource::collection($sessions)->resolve(),
+            'sessions' => TeachingSessionRecapResource::collection($sessions)->resolve(),
             'recap' => $matrix,
         ];
     }

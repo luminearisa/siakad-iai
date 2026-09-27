@@ -286,7 +286,7 @@ onMounted(() => {
 
               <!-- Unit Kerja -->
               <td class="py-3.5 px-4 text-slate-800">
-                {{ lec.homebase_study_program?.degree ? `${lec.homebase_study_program.degree} - ${lec.homebase_study_program.name}` : (lec.homebase_study_program?.name || 'Universitas Demo') }}
+                {{ lec.homebase_study_program?.degree ? `${lec.homebase_study_program.degree} - ${lec.homebase_study_program.name}` : (lec.homebase_study_program?.name || '--') }}
               </td>
 
               <!-- Kuota Pembimbing Akademik (Terisi/Kuota) -->

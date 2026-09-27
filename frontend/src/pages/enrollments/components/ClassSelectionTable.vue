@@ -125,7 +125,7 @@ function getDayLabel(day?: string): string {
                 <span class="font-sans font-bold text-brand-900">{{ getDayLabel(c.schedules[0].day_of_week) }}</span>
                 <span>{{ formatTime(c.schedules[0].start_time) }}–{{ formatTime(c.schedules[0].end_time) }}</span>
               </div>
-              <span v-else class="text-slate-400 italic text-3xs">Jadwal TBD</span>
+              <span v-else class="text-slate-400 italic text-3xs">Belum ada jadwal</span>
             </td>
 
             <!-- Ruangan -->

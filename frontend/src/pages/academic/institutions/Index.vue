@@ -258,7 +258,7 @@ onMounted(() => {
             </label>
             <Input
               v-model="form.code"
-              placeholder="Contoh: demo / IAI"
+              placeholder="Contoh: IAI"
               required
             />
           </div>
@@ -279,7 +279,7 @@ onMounted(() => {
             </label>
             <Input
               v-model="form.name"
-              placeholder="Contoh: Universitas Demo / Institut Agama Islam"
+              placeholder="Contoh: Institut Agama Islam Al-Irsyad"
               required
             />
           </div>

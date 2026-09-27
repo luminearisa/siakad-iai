@@ -15,8 +15,8 @@ const route = useRoute()
 const { login } = useAuth()
 const toast = useToast()
 
-const email = ref<string>('admin@siakad.ac.id')
-const password = ref<string>('password123')
+const email = ref<string>('')
+const password = ref<string>('')
 const loading = ref<boolean>(false)
 const errorMessage = ref<string | null>(null)
 const fieldErrors = ref<Record<string, string[]>>({})
@@ -24,12 +24,26 @@ const showPassword = ref<boolean>(false)
 
 const passwordType = computed(() => (showPassword.value ? 'text' : 'password'))
 
-const demoAccounts = [
-  { label: 'Super Admin', email: 'admin@siakad.ac.id' },
-  { label: 'Akademik', email: 'akademik@siakad.ac.id' },
-  { label: 'Dosen', email: 'dosen@siakad.ac.id' },
-  { label: 'Mahasiswa', email: 'mahasiswa@siakad.ac.id' },
-]
+/**
+ * Pintasan akun uji untuk pengembangan lokal.
+ *
+ * Build produksi tidak memuat blok ini sama sekali (lihat `v-if="isDev"`), sehingga
+ * kredensial hasil seeder tidak pernah dipromosikan di halaman login kampus.
+ */
+const isDev = import.meta.env.DEV
+const DEV_PASSWORD = isDev ? 'password123' : ''
+
+// Ditulis sebagai ternary: saat build produksi `import.meta.env.DEV` menjadi `false`,
+// sehingga daftar ini dan kata sandinya benar-benar dibuang dari bundel — bukan sekadar
+// disembunyikan dari tampilan.
+const devAccounts = isDev
+  ? [
+      { label: 'Super Admin', email: 'admin@siakad.ac.id' },
+      { label: 'Akademik', email: 'akademik@siakad.ac.id' },
+      { label: 'Dosen', email: 'dosen@siakad.ac.id' },
+      { label: 'Mahasiswa', email: 'mahasiswa@siakad.ac.id' },
+    ]
+  : []
 
 async function handleLogin() {
   errorMessage.value = null
@@ -66,9 +80,9 @@ async function handleLogin() {
   }
 }
 
-function setDemoAccount(userEmail: string) {
+function fillDevAccount(userEmail: string) {
   email.value = userEmail
-  password.value = 'password123'
+  password.value = DEV_PASSWORD
 }
 </script>
 
@@ -153,17 +167,17 @@ function setDemoAccount(userEmail: string) {
       </Button>
     </form>
 
-    <div class="mt-6 border-t border-slate-100 pt-5">
-      <p class="mb-2.5 text-2xs font-semibold uppercase tracking-wider text-slate-400">
-        Akses Cepat Akun Demo
+    <div v-if="isDev" class="mt-6 border-t border-slate-100 pt-5">
+      <p class="mb-2.5 text-2xs font-semibold uppercase tracking-wider text-slate-500">
+        Akun Uji Lokal (mode pengembangan)
       </p>
       <div class="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
         <button
-          v-for="account in demoAccounts"
+          v-for="account in devAccounts"
           :key="account.email"
           type="button"
           class="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-2xs font-medium text-slate-600 transition-colors hover:border-brand-300 hover:bg-brand-50 hover:text-brand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          @click="setDemoAccount(account.email)"
+          @click="fillDevAccount(account.email)"
         >
           {{ account.label }}
         </button>

@@ -3,16 +3,23 @@
 namespace Modules\Settings\Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use Modules\Academic\Models\Institution;
 use Modules\Settings\Models\Setting;
 
 class SettingsSeeder extends Seeder
 {
     public function run(): void
     {
+        // Nama institusi diambil dari data institusi (AcademicSeeder) alih-alih ditulis
+        // ulang di sini: nilai ini dipakai pada cetakan, KTM, dan profil yang dikirim ke
+        // PDDikti, jadi tidak boleh berbeda dari data resmi.
+        $institutionName = Institution::query()->value('name')
+            ?? 'Institut Agama Islam Al-Irsyad Jakarta';
+
         $settings = [
             [
                 'key' => 'institution_name',
-                'value' => 'Institut Agama Islam Nusantara',
+                'value' => $institutionName,
                 'type' => 'string',
                 'group' => 'general',
                 'description' => 'Official name of the academic institution.',

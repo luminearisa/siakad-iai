@@ -109,7 +109,7 @@ function formatTimeOnly(timeStr: string): string {
                     <span class="truncate">{{ item.room.code }} ({{ item.room.name }})</span>
                   </div>
                   <div v-else class="text-slate-400 italic">
-                    Ruangan: TBD
+                    Ruangan: Belum ditentukan
                   </div>
 
                   <div v-if="item.academic_class?.lecturers && item.academic_class.lecturers.length > 0" class="flex items-center gap-1 truncate">
@@ -120,7 +120,7 @@ function formatTimeOnly(timeStr: string): string {
               </router-link>
             </div>
 
-            <!-- Empty day placeholder -->
+            <!-- Hari tanpa jadwal -->
             <div
               v-if="!schedulesByDay[day.id] || schedulesByDay[day.id].length === 0"
               class="h-full flex flex-col items-center justify-center p-4 text-center text-slate-400 text-2xs space-y-1 my-auto"

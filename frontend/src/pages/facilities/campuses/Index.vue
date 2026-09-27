@@ -286,7 +286,7 @@ onMounted(() => {
             </label>
             <Input
               v-model="form.name"
-              placeholder="Contoh: Kampus Nusantara / Kampus Harmoni"
+              placeholder="Contoh: Kampus Pusat / Kampus 2"
               required
             />
           </div>

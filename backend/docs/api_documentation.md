@@ -92,7 +92,7 @@ All responses follow the Centralized API Response Standard.
 * `POST /api/v1/lecturers/{id}/reset-password` (`{"password": "..."}`) — requires `lecturers.update`; provisions the account when the lecturer has none yet (default email `{lecturer_number}@dosen.ac.id`)
 * `PATCH /api/v1/lecturers/{id}/toggle-account-status` — requires `lecturers.update`
 
-> Note: creating a student/lecturer **with an email** auto-provisions a portal account (default password `password123`). Records created without an email land in the "Belum Punya Akun" state and the account is created explicitly from the detail page.
+> Note: creating a student/lecturer **with an email** auto-provisions a portal account with a **random temporary password**, returned exactly once as `meta.generated_password` in that response. The account is flagged `must_change_password`, so the owner replaces it at first login — there is no shared default password. Records created without an email land in the "Belum Punya Akun" state and the account is created explicitly from the detail page.
 
 ---
 
@@ -379,3 +379,80 @@ All responses follow the Centralized API Response Standard.
 * **GET `/api/v1/student-grades/{id}/revisions`**
   Retrieve full audit revision history for a grade item.
 
+
+## 12. Integrator API (Kelola API Key & Data untuk Sistem Eksternal)
+
+Modul ini memberi sistem eksternal (mis. aplikasi standalone `integrator/` yang
+menjembatani SIAKAD ke Neo Feeder PDDikti) akses **read-only** ke data akademik,
+dengan kredensial yang bisa dibatasi, dirotasi, dan diaudit.
+
+Dua permukaan terpisah:
+
+| Prefix | Autentikasi | Otorisasi |
+|---|---|---|
+| `/api/v1/integrator/*` | Sanctum (session/token staf) | permission `integrator.*` |
+| `/api/v1/integrator/v1/*` | header `X-API-Key` (atau `Authorization: Bearer`) | scope per route (lihat tabel) |
+
+### 12.1. Model Kredensial
+
+* Token berbentuk `sk_<prefix>.<secret>`; database hanya menyimpan `key_prefix` dan
+  `key_hash` (SHA-256). **Token asli hanya dikembalikan sekali** oleh endpoint
+  `POST /api/v1/integrator/clients/{client}/keys` dan `POST /api/v1/integrator/keys/{key}/rotate`.
+* Key dapat memiliki `expires_at` dan dapat dicabut (`revoked_at` + alasan).
+  Status efektif: `active`, `revoked`, `expired`, `client_inactive`.
+* Klien (`api_clients`) punya allow-list IP (CIDR IPv4/IPv6) dan `rate_limit_per_minute`.
+* Setiap permintaan dicatat di `api_request_logs` (termasuk 401/403/429).
+
+### 12.2. Endpoint staf (Sanctum + permission)
+
+* **GET `/api/v1/integrator/scopes`** — daftar scope + default (`integrator.keys.view`).
+* **GET/POST `/api/v1/integrator/clients`** — daftar/buat klien.
+* **GET/PUT/DELETE `/api/v1/integrator/clients/{client}`** — detail/ubah/hapus
+  (klien dengan kunci aktif tidak dapat dihapus → 422).
+* **GET `/api/v1/integrator/clients/{client}/keys`** · **POST** — daftar kunci · terbitkan kunci.
+* **GET `/api/v1/integrator/keys`** — semua kunci (filter `status`, `api_client_id`).
+* **POST `/api/v1/integrator/keys/{key}/rotate`** — cabut + terbitkan kunci baru (scope sama).
+* **POST `/api/v1/integrator/keys/{key}/revoke`** — cabut kunci (idempoten).
+* **DELETE `/api/v1/integrator/keys/{key}`** — hapus kunci yang sudah dicabut.
+* **GET `/api/v1/integrator/logs`** · **GET `/api/v1/integrator/logs/stats`** — log & statistik.
+
+Contoh menerbitkan kunci:
+
+```bash
+curl -X POST https://siakad.example.ac.id/api/v1/integrator/clients/1/keys \
+  -H "Authorization: Bearer <sanctum-token>" -H "Content-Type: application/json" \
+  -d '{"name":"Produksi PDDikti","scopes":["students.read","classes.read","grades.read"]}'
+```
+
+### 12.3. Endpoint data (API key + scope)
+
+Semua endpoint mendukung `search`, filter kolom, `sort`, `direction`, `per_page`
+(maks 500), dan `updated_since` untuk sinkronisasi inkremental.
+
+| Method & URL | Scope | Isi |
+|---|---|---|
+| GET `/integrator/v1/ping` | *key valid* | uji kredensial + daftar scope |
+| GET `/integrator/v1/profile` | `reference.read` | institusi, fakultas, prodi, tahun ajaran, semester, skala nilai |
+| GET `/integrator/v1/snapshot` | `reference.read` | jumlah mahasiswa/kelas/KRS |
+| GET `/integrator/v1/semesters` | `academic.read` | periode + kode semester PDDikti (`20251`) |
+| GET `/integrator/v1/students`, `/students/{nim}` | `students.read` (+ `students.pii`) | biodata; tanpa `students.pii` NIK/telepon/email disamarkan |
+| GET `/integrator/v1/lecturers` | `lecturers.read` | dosen + homebase + riwayat pendidikan |
+| GET `/integrator/v1/courses` | `courses.read` | mata kuliah + rincian SKS |
+| GET `/integrator/v1/curricula` | `curricula.read` | kurikulum + mata kuliah per semester |
+| GET `/integrator/v1/classes` | `classes.read` | kelas + pengampu + jadwal |
+| GET `/integrator/v1/enrollments` | `enrollments.read` | KRS/peserta kelas |
+| GET `/integrator/v1/akm` | `enrollments.read` | SKS, IPS, IPK per mahasiswa per semester (wajib `semester_id`) |
+| GET `/integrator/v1/grades` | `grades.read` | rekap nilai (wajib `class_id` atau `student_number`) |
+| GET `/integrator/v1/activities?type=thesis\|mbkm` | `activities.read` | aktivitas mahasiswa + pembimbing |
+| GET `/integrator/v1/graduates` | `graduation.read` | peserta yudisium/lulusan |
+
+Contoh:
+
+```bash
+curl "https://siakad.example.ac.id/api/v1/integrator/v1/students?per_page=100&updated_since=2026-09-01T00:00:00Z" \
+  -H "X-API-Key: $SIAKAD_API_KEY"   # token hasil terbitkan kunci
+```
+
+Respons memakai skema standar (`success`, `message`, `data`, `meta`) seperti bagian
+awal dokumen ini; galat otorisasi memakai `errors.required_scopes` /
+`errors.granted_scopes` agar pemanggil tahu scope mana yang kurang.

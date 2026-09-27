@@ -301,7 +301,7 @@ onMounted(() => {
             </label>
             <Input
               v-model="form.name"
-              placeholder="Contoh: Fakultas Desain dan Industri Kreatif"
+              placeholder="Contoh: Fakultas Tarbiyah dan Ilmu Keguruan"
               required
             />
           </div>
@@ -312,7 +312,7 @@ onMounted(() => {
             </label>
             <Input
               v-model="form.name_en"
-              placeholder="Contoh: Faculty of Design and Creative Industries"
+              placeholder="Contoh: Faculty of Tarbiyah and Teacher Training"
             />
           </div>
 

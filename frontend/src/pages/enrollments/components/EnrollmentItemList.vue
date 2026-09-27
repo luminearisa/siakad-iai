@@ -157,7 +157,7 @@ function getDayLabel(day?: string): string {
                   <span>{{ item.academic_class.schedules[0].room.code }} ({{ item.academic_class.schedules[0].room.name }})</span>
                 </div>
               </div>
-              <span v-else class="text-slate-400 italic text-3xs">Jadwal TBD</span>
+              <span v-else class="text-slate-400 italic text-3xs">Belum ada jadwal</span>
             </td>
 
             <!-- Status -->

@@ -53,7 +53,11 @@ class LecturerController extends Controller
         return $this->successResponse(
             data: new LecturerResource($lecturer),
             message: 'Lecturer created successfully.',
-            code: 201
+            code: 201,
+            // Ditampilkan tepat sekali; operator menyerahkannya ke dosen yang bersangkutan.
+            meta: $this->lecturerService->generatedPassword
+                ? ['generated_password' => $this->lecturerService->generatedPassword]
+                : null
         );
     }
 

@@ -461,4 +461,87 @@ class StandardsAuditTest extends TestCase
             'The per-enrollment max_credits column is never read by validation — raising an advisor quota has no effect'
         );
     }
+
+    // ---------------------------------------------------------------------
+    // C. AKUN DOSEN
+    // ---------------------------------------------------------------------
+
+    /** STANDARD: a provisioned lecturer account must not keep a well-known default password. */
+    public function test_new_lecturer_account_does_not_use_a_hardcoded_default_password(): void
+    {
+        $response = $this->asPost('/api/v1/lecturers', [
+            'full_name' => 'Audit Dosen Baru',
+            'gender' => 'male',
+            'email' => 'audit.dosen@siakad.ac.id',
+            'homebase_study_program_id' => \Modules\Academic\Models\StudyProgram::firstOrFail()->id,
+            'status' => 'active',
+        ], 'admin@siakad.ac.id');
+
+        $response->assertStatus(201);
+
+        $user = User::where('email', 'audit.dosen@siakad.ac.id')->firstOrFail();
+
+        $this->assertFalse(
+            Hash::check('password123', $user->password),
+            'Account was provisioned with the hardcoded default password "password123"'
+        );
+        $this->assertTrue(
+            $user->must_change_password,
+            'The generated password must be treated as temporary, not as the lecturer\'s password'
+        );
+
+        $temporary = $response->json('meta.generated_password');
+        $this->assertNotEmpty($temporary, 'The temporary password must be returned once so the operator can hand it over');
+        $this->assertTrue(Hash::check($temporary, $user->password));
+    }
+
+    /** STANDARD: creating a lecturer must not grant the dosen role to a pre-existing privileged account. */
+    public function test_lecturer_email_collision_does_not_leak_roles(): void
+    {
+        $admin = User::where('email', 'admin@siakad.ac.id')->firstOrFail();
+
+        $this->asPost('/api/v1/lecturers', [
+            'full_name' => 'Audit Kolisi Dosen',
+            'gender' => 'male',
+            'email' => $admin->email,
+            'homebase_study_program_id' => \Modules\Academic\Models\StudyProgram::firstOrFail()->id,
+            'status' => 'active',
+        ], 'admin@siakad.ac.id')->assertStatus(422);
+
+        $this->assertFalse(
+            $admin->fresh()->hasRole('dosen'),
+            'The dosen role was attached to an account that already has other roles'
+        );
+    }
+
+    /** STANDARD: creating lecturer data must not overwrite the password of an existing account. */
+    public function test_lecturer_creation_does_not_reset_an_existing_password(): void
+    {
+        // Akun dosen yang belum terhubung ke data dosen mana pun.
+        $user = User::create([
+            'name' => 'Dosen Tanpa Data',
+            'email' => 'dosen.tanpa.data@siakad.ac.id',
+            'password' => Hash::make('sandiAwalYangSudahAda'),
+            'status' => 'active',
+        ]);
+        $user->assignRole('dosen');
+
+        $before = $user->password;
+
+        $response = $this->asPost('/api/v1/lecturers', [
+            'full_name' => 'Dosen Tanpa Data',
+            'gender' => 'male',
+            'email' => $user->email,
+            'homebase_study_program_id' => \Modules\Academic\Models\StudyProgram::firstOrFail()->id,
+            'status' => 'active',
+        ], 'admin@siakad.ac.id');
+
+        $response->assertStatus(201);
+
+        $this->assertSame($before, $user->fresh()->password, 'The existing account password was silently replaced');
+        $this->assertNull(
+            $response->json('meta.generated_password'),
+            'No temporary password may be announced when no new account was created'
+        );
+    }
 }

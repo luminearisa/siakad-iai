@@ -889,7 +889,7 @@ onMounted(() => {
       </template>
     </Modal>
 
-    <!-- Modal Pratinjau Mahasiswa (Student Questionnaire View Mock) -->
+    <!-- Pratinjau tampilan mahasiswa, memakai topik & pertanyaan yang sedang diatur -->
     <Modal
       v-model:open="showPreviewModal"
       title="Pratinjau Kuisioner Evaluasi Pembelajaran (Tampilan Mahasiswa)"

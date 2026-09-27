@@ -92,7 +92,7 @@ const columns: Column<ClassSchedule>[] = [
           <span class="text-2xs text-slate-500 block">{{ row.room.name }}</span>
         </div>
       </div>
-      <span v-else class="text-xs text-slate-400 italic">TBD</span>
+      <span v-else class="text-xs text-slate-400 italic">Belum dijadwalkan</span>
     </template>
 
     <!-- Cell: Status -->

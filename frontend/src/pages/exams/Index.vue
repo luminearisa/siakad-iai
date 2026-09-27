@@ -394,7 +394,7 @@ onMounted(() => {
           v-model="selectedProdiId"
           class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600 outline-none"
         >
-          <option value="">Universitas Demo</option>
+          <option value="">Semua Unit Kerja</option>
           <option v-for="p in studyPrograms" :key="p.id" :value="String(p.id)">
             {{ p.degree ? `${p.degree} - ${p.name}` : p.name }}
           </option>

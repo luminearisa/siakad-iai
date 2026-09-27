@@ -1708,7 +1708,7 @@ onMounted(async () => {
           </div>
           <div>
             <label class="block font-semibold text-slate-700 mb-1.5">Nama Penilai</label>
-            <Input v-model="assessmentForm.assessor_name" placeholder="mis. Budi Santoso" />
+            <Input v-model="assessmentForm.assessor_name" placeholder="Nama lengkap penguji" />
           </div>
           <div>
             <label class="block font-semibold text-slate-700 mb-1.5">Nilai Maksimum</label>

@@ -185,7 +185,7 @@ onMounted(() => {
               v-model="form.room_id"
               :disabled="loading"
             >
-              <option :value="null">-- Ruangan Belum Ditentukan (TBD) --</option>
+              <option :value="null">-- Ruangan Belum Ditentukan --</option>
               <option v-for="r in rooms" :key="r.id" :value="r.id">
                 {{ r.code }} — {{ r.name }} ({{ r.building || 'Kampus' }} · {{ r.capacity }} Kursi)
               </option>

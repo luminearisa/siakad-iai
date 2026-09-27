@@ -478,7 +478,8 @@ class AttendanceTest extends TestCase
         $this->asDosen('GET', "/api/v1/attendance/classes/{$this->ownClass->id}/recap")
             ->assertStatus(200)
             ->assertJsonPath('data.threshold_stage', 'uas')
-            ->assertJsonPath('data.min_attendance_percentage', 85.0);
+            // JSON tidak membedakan 85 dan 85.0, jadi bandingkan sebagai angka.
+            ->assertJsonPath('data.min_attendance_percentage', fn ($value) => (float) $value === 85.0);
     }
 
     public function test_student_recap_only_counts_sessions_already_held(): void
