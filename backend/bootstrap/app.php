@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => \Modules\Identity\Middleware\CheckRole::class,
             'permission' => \Modules\Identity\Middleware\CheckPermission::class,
+            'api.key' => \Modules\Integrator\Middleware\AuthenticateApiKey::class,
         ]);
 
         $middleware->appendToGroup('api', [

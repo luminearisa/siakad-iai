@@ -43,6 +43,8 @@ import {
   Medal,
   ClipboardList,
   FileBarChart2,
+  KeyRound,
+  ScrollText,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -87,6 +89,8 @@ const iconMap: Record<string, any> = {
   Medal,
   ClipboardList,
   FileBarChart2,
+  KeyRound,
+  ScrollText,
 }
 
 function getIcon(name: string) {

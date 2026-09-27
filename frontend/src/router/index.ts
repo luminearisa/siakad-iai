@@ -418,6 +418,19 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/settings/ktm/Index.vue'),
         meta: { title: 'Pengaturan KTM', permission: 'students.view' },
       },
+      // Integrasi & PDDikti
+      {
+        path: 'integrator/clients',
+        name: 'integrator.clients',
+        component: () => import('@/pages/integrator/Clients.vue'),
+        meta: { title: 'Klien & Kunci API', permission: 'integrator.clients.view' },
+      },
+      {
+        path: 'integrator/logs',
+        name: 'integrator.logs',
+        component: () => import('@/pages/integrator/Logs.vue'),
+        meta: { title: 'Log Akses Integrasi', permission: 'integrator.logs.view' },
+      },
       // Sarana dan Prasarana
       {
         path: 'facilities/campuses',

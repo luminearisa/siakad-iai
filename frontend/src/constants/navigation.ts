@@ -731,4 +731,26 @@ export const NAVIGATION_CONFIG: NavigationSection[] = [
       },
     ],
   },
+  {
+    title: 'Integrasi & PDDikti',
+    roles: ADMIN_ROLES,
+    items: [
+      {
+        id: 'integrator-clients',
+        label: 'Klien & Kunci API',
+        to: '/integrator/clients',
+        icon: 'KeyRound',
+        permission: 'integrator.clients.view',
+        roles: ADMIN_ROLES,
+      },
+      {
+        id: 'integrator-logs',
+        label: 'Log Akses Integrasi',
+        to: '/integrator/logs',
+        icon: 'ScrollText',
+        permission: 'integrator.logs.view',
+        roles: ADMIN_ROLES,
+      },
+    ],
+  },
 ]

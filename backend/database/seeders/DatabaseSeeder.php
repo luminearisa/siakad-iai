@@ -13,6 +13,7 @@ use Modules\Course\Database\Seeders\CourseSeeder;
 use Modules\Curriculum\Database\Seeders\CurriculumSeeder;
 use Modules\Enrollment\Database\Seeders\EnrollmentSeeder;
 use Modules\Identity\Database\Seeders\IdentitySeeder;
+use Modules\Integrator\Database\Seeders\IntegratorSeeder;
 use Modules\Lecturer\Database\Seeders\LecturerSeeder;
 use Modules\MBKM\Database\Seeders\MbkmSeeder;
 use Modules\Schedule\Database\Seeders\RoomSeeder;
@@ -44,6 +45,7 @@ class DatabaseSeeder extends Seeder
             AssessmentSeeder::class,
             GradeSeeder::class,
             MbkmSeeder::class,
+            IntegratorSeeder::class,
         ]);
     }
 }

@@ -1,0 +1,282 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Command line interface for operators and cron jobs.
+ *
+ *   php bin/console migrate
+ *   php bin/console key:generate
+ *   php bin/console user:create "Nama" operator@kampus.ac.id sandi
+ *   php bin/console siakad:ping
+ *   php bin/console feeder:ping
+ *   php bin/console sync:list
+ *   php bin/console sync:run reference
+ *   php bin/console sync:run students --dry-run --limit=20
+ *   php bin/console sync:run grades --semester=20251
+ *   php bin/console logs:tail [--entity=students] [--status=failed]
+ */
+
+use Integrator\App;
+use Integrator\Siakad\SiakadException;
+use Integrator\Support\Config;
+use Integrator\Support\Crypto;
+use Integrator\Sync\SyncOptions;
+
+$root = dirname(__DIR__);
+
+require $root.'/src/autoload.php';
+
+Config::boot($root);
+
+$app = new App($root);
+$app->boot();
+
+$arguments = array_slice($argv, 1);
+$command = array_shift($arguments) ?? 'help';
+
+/**
+ * @param  array<int, string>  $arguments
+ * @return array{0: array<string, mixed>, 1: array<int, string>}
+ */
+$parse = static function (array $arguments): array {
+    $options = [];
+    $positional = [];
+
+    foreach ($arguments as $argument) {
+        if (str_starts_with($argument, '--')) {
+            $argument = substr($argument, 2);
+
+            if (str_contains($argument, '=')) {
+                [$key, $value] = explode('=', $argument, 2);
+                $options[$key] = $value;
+
+                continue;
+            }
+
+            $options[$argument] = true;
+
+            continue;
+        }
+
+        $positional[] = $argument;
+    }
+
+    return [$options, $positional];
+};
+
+$fail = static function (string $message): never {
+    fwrite(STDERR, "\033[31m✗\033[0m {$message}\n");
+    exit(1);
+};
+
+$ok = static function (string $message): void {
+    fwrite(STDOUT, "\033[32m✓\033[0m {$message}\n");
+};
+
+$usage = static function () use ($ok): void {
+    $ok('Perintah tersedia:');
+    fwrite(STDOUT, <<<TEXT
+      migrate                       Siapkan/perbarui skema SQLite lokal
+      key:generate                  Isi APP_KEY di .env (untuk enkripsi kredensial)
+      user:create <nama> <email> <sandi>
+      user:password <email> <sandi> Ganti kata sandi operator
+      siakad:ping                   Uji API key SIAKAD dan tampilkan scope
+      feeder:ping                   Uji login Web Service Neo Feeder
+      sync:list                     Daftar entity beserta urutannya
+      sync:run <entity> [--dry-run] [--limit=N] [--semester=20251] [--force] [--with-dependencies]
+      logs:tail [--entity=students] [--status=failed] [--limit=20]
+
+TEXT);
+};
+
+switch ($command) {
+    case 'help':
+    case '--help':
+        $usage();
+        break;
+
+    case 'migrate':
+        $tables = $app->database()->migrate();
+        $ok('Skema siap: '.implode(', ', $tables));
+        break;
+
+    case 'key:generate':
+        $envPath = $root.'/.env';
+        $key = Crypto::generateKey();
+        $content = is_file($envPath) ? (string) file_get_contents($envPath) : '';
+
+        if (preg_match('/^APP_KEY=.*$/m', $content) === 1) {
+            $content = (string) preg_replace('/^APP_KEY=.*$/m', 'APP_KEY='.$key, $content);
+        } else {
+            $content .= PHP_EOL.'APP_KEY='.$key.PHP_EOL;
+        }
+
+        file_put_contents($envPath, $content);
+        $ok('APP_KEY baru ditulis ke .env. Kredensial lama yang tersimpan perlu diisi ulang.');
+        break;
+
+    case 'user:create':
+        [$options, $positional] = $parse($arguments);
+
+        if (count($positional) < 3) {
+            $fail('Gunakan: user:create <nama> <email> <sandi>');
+        }
+
+        [$name, $email, $password] = $positional;
+
+        if (strlen($password) < 8) {
+            $fail('Kata sandi minimal 8 karakter.');
+        }
+
+        try {
+            $app->auth()->createUser($name, $email, $password);
+        } catch (Throwable $exception) {
+            $fail('Gagal membuat user: '.$exception->getMessage());
+        }
+
+        $ok("Operator {$email} dibuat.");
+        break;
+
+    case 'user:password':
+        [, $positional] = $parse($arguments);
+
+        if (count($positional) < 2) {
+            $fail('Gunakan: user:password <email> <sandi>');
+        }
+
+        [$email, $password] = $positional;
+        $user = $app->database()->first('SELECT id FROM users WHERE email = :email', ['email' => mb_strtolower($email)]);
+
+        if ($user === null) {
+            $fail('User tidak ditemukan.');
+        }
+
+        $app->auth()->changePassword((int) $user['id'], $password);
+        $ok('Kata sandi diperbarui.');
+        break;
+
+    case 'siakad:ping':
+        try {
+            $ping = $app->siakad()->ping();
+        } catch (SiakadException $exception) {
+            $fail($exception->getMessage().' '.$exception->hint());
+        }
+
+        $ok('SIAKAD terhubung: '.($ping['client']['name'] ?? 'klien'));
+        fwrite(STDOUT, '  scope: '.implode(', ', (array) ($ping['key']['scopes'] ?? [])).PHP_EOL);
+        fwrite(STDOUT, '  aplikasi: '.($ping['application'] ?? '-').PHP_EOL);
+
+        $snapshot = $app->siakad()->snapshot();
+        fwrite(STDOUT, '  semester aktif: '.(string) ($snapshot['semester']['feeder_code'] ?? '—').PHP_EOL);
+
+        foreach (($snapshot['counts'] ?? []) as $key => $value) {
+            fwrite(STDOUT, "  {$key}: {$value}".PHP_EOL);
+        }
+        break;
+
+    case 'feeder:ping':
+        try {
+            $ping = $app->feeder()->ping();
+        } catch (Throwable $exception) {
+            $fail('Gagal menghubungi Neo Feeder: '.$exception->getMessage());
+        }
+
+        if ($ping['error_code'] !== 0) {
+            $fail('Feeder menolak: '.$ping['error_desc']);
+        }
+
+        $ok('Neo Feeder terhubung ('.($ping['sandbox'] ? 'sandbox' : 'live').'): '.$ping['endpoint']);
+
+        if (is_array($ping['profile'])) {
+            fwrite(STDOUT, '  PT: '.($ping['profile']['nama_perguruan_tinggi'] ?? '-').PHP_EOL);
+            fwrite(STDOUT, '  kode: '.($ping['profile']['kode_perguruan_tinggi'] ?? '-').PHP_EOL);
+        }
+        break;
+
+    case 'sync:list':
+        foreach ($app->registry()->grouped() as $group => $syncers) {
+            fwrite(STDOUT, "\n\033[1m{$group}\033[0m\n");
+
+            foreach ($syncers as $syncer) {
+                $dependencies = $syncer->dependsOn() === [] ? '' : ' ← '.implode(', ', $syncer->dependsOn());
+                fwrite(STDOUT, sprintf(
+                    "  %-24s %-42s %s%s\n",
+                    $syncer->key(),
+                    $syncer->label(),
+                    $syncer->actInsert() ?? 'tarik referensi',
+                    $dependencies
+                ));
+            }
+        }
+        fwrite(STDOUT, PHP_EOL);
+        break;
+
+    case 'sync:run':
+        [$options, $positional] = $parse($arguments);
+        $entity = $positional[0] ?? '';
+
+        if ($entity === '' || ! $app->registry()->has($entity)) {
+            $fail('Entity tidak dikenal. Jalankan `sync:list` untuk melihat daftar.');
+        }
+
+        $syncOptions = new SyncOptions(
+            dryRun: array_key_exists('dry-run', $options) || ! array_key_exists('live', $options),
+            semesterCode: isset($options['semester']) && is_string($options['semester']) ? $options['semester'] : null,
+            limit: isset($options['limit']) && is_numeric($options['limit']) ? (int) $options['limit'] : 0,
+            force: array_key_exists('force', $options)
+        );
+
+        if (array_key_exists('live', $options) && array_key_exists('dry-run', $options)) {
+            $fail('Pilih salah satu: --dry-run atau --live.');
+        }
+
+        $entities = array_key_exists('with-dependencies', $options)
+            ? $app->registry()->order($entity)
+            : [$entity];
+
+        foreach ($entities as $current) {
+            $result = $app->runner()->run($current, $syncOptions);
+
+            if (! $result->ok()) {
+                $fail($result->summary().' — '.$result->error);
+            }
+
+            fwrite(STDOUT, sprintf(
+                "%s %s total=%d berhasil=%d dilewati=%d gagal=%d%s\n",
+                $result->failed > 0 ? "\033[33m!\033[0m" : "\033[32m✓\033[0m",
+                $result->entity,
+                $result->total,
+                $result->succeeded,
+                $result->skipped,
+                $result->failed,
+                $result->mode === 'dry-run' ? " rencana={$result->planned}" : ''
+            ));
+        }
+        break;
+
+    case 'logs:tail':
+        [$options] = $parse($arguments);
+        $filters = array_filter([
+            'entity' => is_string($options['entity'] ?? null) ? $options['entity'] : null,
+            'status' => is_string($options['status'] ?? null) ? $options['status'] : null,
+            'search' => is_string($options['search'] ?? null) ? $options['search'] : null,
+        ]);
+        $limit = is_numeric($options['limit'] ?? null) ? (int) $options['limit'] : 20;
+
+        foreach ($app->logRepository()->logs($filters, $limit) as $log) {
+            fwrite(STDOUT, sprintf(
+                "%s [%-9s] %-18s %-28s %s\n",
+                $log['created_at'],
+                $log['status'],
+                $log['entity'],
+                (string) ($log['local_key'] ?? '—'),
+                (string) ($log['message'] ?? '')
+            ));
+        }
+        break;
+
+    default:
+        $fail("Perintah [{$command}] tidak dikenal. Jalankan `php bin/console help`.");
+}
