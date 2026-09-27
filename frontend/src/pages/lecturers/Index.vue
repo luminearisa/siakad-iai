@@ -15,6 +15,12 @@ import ConfirmModal from '@/components/feedback/ConfirmModal.vue'
 import LecturerFilters from './components/LecturerFilters.vue'
 import LecturerStatusBadge from './components/LecturerStatusBadge.vue'
 import ChangeLecturerStatusModal from './components/ChangeLecturerStatusModal.vue'
+import ExportMenu from '@/components/data-display/ExportMenu.vue'
+import { useFeederExport } from '@/composables/useFeederExport'
+// Unduhan data pelaporan PDDikti / Neo Feeder untuk halaman ini.
+const { exportOptions } = useFeederExport('lecturers', 'Data dosen', {
+  note: 'seluruh dosen',
+})
 
 const { can } = usePermissions()
 const toast = useToast()
@@ -137,6 +143,7 @@ onMounted(() => {
       :breadcrumbs="[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Dosen' }]"
     >
       <template #actions>
+        <ExportMenu :options="exportOptions" />
         <router-link v-if="can('lecturers.create')" to="/lecturers/create">
           <Button variant="primary" size="sm">
             <Plus class="w-3.5 h-3.5" />

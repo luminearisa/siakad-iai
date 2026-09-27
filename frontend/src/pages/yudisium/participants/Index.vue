@@ -17,6 +17,12 @@ import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import Modal from '@/components/ui/Modal.vue'
+import ExportMenu from '@/components/data-display/ExportMenu.vue'
+import { useFeederExport } from '@/composables/useFeederExport'
+// Unduhan data pelaporan PDDikti / Neo Feeder untuk halaman ini.
+const { exportOptions } = useFeederExport('graduates', 'Lulusan (yudisium)', {
+  note: 'seluruh peserta yudisium',
+})
 
 const route = useRoute()
 const toast = useToast()
@@ -195,6 +201,7 @@ onMounted(() => {
 
       <div>
         <!-- Button Input SK Yudisium (Screenshot 2) -->
+        <ExportMenu :options="exportOptions" class="ml-auto sm:ml-0" />
         <Button
           variant="primary"
           size="sm"

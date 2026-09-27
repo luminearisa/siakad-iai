@@ -416,6 +416,18 @@ Dua permukaan terpisah:
 * **DELETE `/api/v1/integrator/keys/{key}`** — hapus kunci yang sudah dicabut.
 * **GET `/api/v1/integrator/logs`** · **GET `/api/v1/integrator/logs/stats`** — log & statistik.
 
+Unduhan data pelaporan feeder dari halaman data SIAKAD (tombol `Export as…`):
+
+* **GET `/api/v1/integrator/datasets`** — katalog dataset yang boleh diunduh pengguna.
+* **GET `/api/v1/integrator/datasets/{dataset}/export`** — unduhan satu dataset.
+  Dataset tersedia: `students`, `lecturers`, `courses`, `curricula`, `classes`,
+  `enrollments`, `akm` (wajib `semester_id`), `grades` (wajib `semester_id`),
+  `activities` (`type=mbkm|thesis`), `graduates`, `semesters`, `study-programs`,
+  `faculties`, `institutions`, `academic-years`, `rooms`.
+  Permission mengikuti halaman asalnya (mis. `students.view` untuk mahasiswa).
+  Parameter: `format=csv|json`, `header=label|api` (nama field feeder), dan filter
+  halaman (`semester_id`, `study_program_id`, `status`, `search`, ...).
+
 Unduhan data pelaporan ("Export as…", CSV/JSON) untuk halaman integrasi:
 
 * **GET `/api/v1/integrator/logs/export`** — log permintaan API, mengikuti filter

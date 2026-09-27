@@ -14,6 +14,12 @@ import Button from '@/components/ui/Button.vue'
 import ConfirmModal from '@/components/feedback/ConfirmModal.vue'
 import CurriculumFilters from './components/CurriculumFilters.vue'
 import CurriculumStatusBadge from './components/CurriculumStatusBadge.vue'
+import ExportMenu from '@/components/data-display/ExportMenu.vue'
+import { useFeederExport } from '@/composables/useFeederExport'
+// Unduhan data pelaporan PDDikti / Neo Feeder untuk halaman ini.
+const { exportOptions } = useFeederExport('curricula', 'Kurikulum', {
+  note: 'satu baris per mata kuliah',
+})
 
 const { can } = usePermissions()
 const toast = useToast()
@@ -169,6 +175,7 @@ onMounted(() => {
       :breadcrumbs="[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Kurikulum' }]"
     >
       <template #actions>
+        <ExportMenu :options="exportOptions" />
         <router-link v-if="can('curricula.create')" to="/curriculum/create">
           <Button variant="primary" size="sm">
             <Plus class="w-3.5 h-3.5" />

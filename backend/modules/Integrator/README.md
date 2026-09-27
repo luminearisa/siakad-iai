@@ -170,3 +170,53 @@ Pengamanan:
   batas itu diumumkan lewat header `X-Export-Row-Limit`;
 * setiap unduhan dicatat pada log aplikasi (`integrator.export`) berisi dataset,
   filter, dan siapa yang mengunduh.
+
+## Unduhan data pelaporan feeder ("Export as…" di halaman data SIAKAD)
+
+Setiap halaman data SIAKAD yang isinya dikirim ke Neo Feeder / PDDikti punya tombol
+`Export as…` yang memakai **sumber data yang sama** dengan endpoint `/integrator/v1/*`
+(mahasiswa, dosen, mata kuliah, kurikulum, kelas, KRS, AKM, nilai, aktivitas, lulusan)
+atau langsung dari model untuk data referensi (prodi, fakultas, PT, tahun ajaran, ruang).
+Isi berkas jadi identik dengan yang ditarik feeder — bukan hasil query kedua yang bisa
+menyimpang diam-diam.
+
+| Dataset | Halaman asal | Permission |
+|---|---|---|
+| `students` | Data Mahasiswa | `students.view` |
+| `lecturers` | Data Dosen | `lecturers.view` |
+| `courses` | Mata Kuliah | `courses.view` |
+| `curricula` | Kurikulum | `curricula.view` |
+| `classes` | Kelas Perkuliahan | `classes.view` |
+| `enrollments` | Monitoring Perwalian (KRS) | `enrollments.view` |
+| `akm` (butuh `semester_id`) | AKM per semester | `enrollments.view` |
+| `grades` (butuh `semester_id`) | Nilai per kelas | `grades.view` |
+| `activities` (`type=mbkm\|thesis`) | Peserta MBKM / Tugas Akhir | `mbkm.participants.view` |
+| `graduates` | Peserta Yudisium | `students.view` |
+| `semesters` | Periode Akademik | `semesters.view` |
+| `study-programs` | Program Studi | `study_programs.view` |
+| `faculties` | Fakultas | `faculties.view` |
+| `institutions` | Universitas | `institutions.view` |
+| `academic-years` | Tahun Ajaran | `academic_years.view` |
+| `rooms` | Ruang (Sarana & Prasarana) | `rooms.view` |
+
+Endpoint:
+
+* `GET /api/v1/integrator/datasets` — katalog dataset yang boleh diunduh pengguna;
+* `GET /api/v1/integrator/datasets/{dataset}/export` — unduhan satu dataset.
+
+Parameter: `format=csv|json` (bawaan `csv`), `header=label|api` (nama kolom bahasa
+Indonesia atau nama field feeder seperti `nim`, `sks`, `nilai_angka`), filter halaman
+(`semester_id`, `study_program_id`, `status`, `search`, `from`/`to`, ...). Parameter di
+luar daftar putih dataset diabaikan, sehingga filter liar tidak bisa menyusup ke berkas.
+
+Baris bertingkat tetap terbaca di Excel: KRS menjadi satu baris per mata kuliah,
+kelas menjadi satu baris per pengajar/jadwal, kurikulum per mata kuliah, dan nilai
+menjadi satu baris per mahasiswa. Objek bersarang memakai kolom bertitik
+(`study_program.code`), sedangkan daftar nilai sederhana digabung dengan `;`.
+
+Pengamanan: hanya kolom yang ada di `IntegratorExportService::DATASETS` yang bisa keluar
+(allow-list), kunci API tidak pernah ikut (hanya `key_prefix`), sel yang diawali
+`=`, `+`, `-`, `@` diberi kutip agar tidak dieksekusi Excel, satu berkas dibatasi
+`IntegratorExportService::MAX_ROWS` (50.000 baris) dengan penanda header
+`X-Export-Row-Limit`, dan setiap unduhan tercatat pada log aplikasi (`integrator.export`).
+

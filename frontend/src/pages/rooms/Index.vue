@@ -8,6 +8,12 @@ import PageContainer from '@/components/data-display/PageContainer.vue'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
+import ExportMenu from '@/components/data-display/ExportMenu.vue'
+import { useFeederExport } from '@/composables/useFeederExport'
+// Unduhan data pelaporan PDDikti / Neo Feeder untuk halaman ini.
+const { exportOptions } = useFeederExport('rooms', 'Ruang', {
+  note: 'seluruh ruang',
+})
 
 const toast = useToast()
 const loading = ref<boolean>(false)
@@ -143,6 +149,7 @@ onMounted(() => {
         <p class="text-xs text-slate-500 mt-0.5">Referensi Ruang</p>
       </div>
 
+      <ExportMenu :options="exportOptions" class="ml-auto sm:ml-0" />
       <Button
         variant="primary"
         size="sm"

@@ -16,6 +16,12 @@ import ConfirmModal from '@/components/feedback/ConfirmModal.vue'
 import CourseFilters from './components/CourseFilters.vue'
 import CourseTypeBadge from './components/CourseTypeBadge.vue'
 import AddPrerequisiteModal from './components/AddPrerequisiteModal.vue'
+import ExportMenu from '@/components/data-display/ExportMenu.vue'
+import { useFeederExport } from '@/composables/useFeederExport'
+// Unduhan data pelaporan PDDikti / Neo Feeder untuk halaman ini.
+const { exportOptions } = useFeederExport('courses', 'Mata kuliah', {
+  note: 'seluruh mata kuliah',
+})
 
 const { can } = usePermissions()
 const toast = useToast()
@@ -134,6 +140,7 @@ onMounted(() => {
       :breadcrumbs="[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Mata Kuliah' }]"
     >
       <template #actions>
+        <ExportMenu :options="exportOptions" />
         <router-link v-if="can('courses.create')" to="/courses/create">
           <Button variant="primary" size="sm">
             <Plus class="w-3.5 h-3.5" />

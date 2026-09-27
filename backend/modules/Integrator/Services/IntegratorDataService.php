@@ -998,6 +998,13 @@ class IntegratorDataService
      */
     protected function includesPii(Request $request): bool
     {
+        // Unduhan staf SIAKAD ("Export as…" di halaman Data Mahasiswa) sudah melewati
+        // pemeriksaan permission halaman dan dicatat sebagai audit, jadi data pribadi
+        // yang memang tampil di layar tidak disamarkan lagi di berkas.
+        if ($request->attributes->get('integrator.include_pii') === true) {
+            return true;
+        }
+
         $key = $request->attributes->get('integrator.api_key');
 
         return $key?->can(ApiKeyScope::STUDENTS_PII) ?? false;

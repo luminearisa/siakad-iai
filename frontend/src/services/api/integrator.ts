@@ -2,6 +2,7 @@ import { apiClient } from './client'
 import type { ApiResponse } from '@/types/api'
 import type {
   ApiClient,
+  DatasetExportItem,
   ApiClientPayload,
   ApiKey,
   ApiKeyScopeCatalog,
@@ -70,6 +71,35 @@ export const integratorService = {
   },
   logStats(params?: { days?: number }): Promise<ApiResponse<IntegratorLogStats>> {
     return apiClient.get<IntegratorLogStats>('/integrator/logs/stats', params)
+  },
+
+  // Unduhan data pelaporan feeder ("Export as…" di halaman data SIAKAD) -------
+  //
+  // Endpoint-nya mengikuti permission halaman asal (mis. `students.view` untuk
+  // Data Mahasiswa) dan memakai sumber data yang sama dengan `/integrator/v1/*`,
+  // sehingga isi berkas = yang dilihat feeder.
+  /** Katalog dataset yang boleh diunduh pengguna ini. */
+  datasetCatalog(): Promise<ApiResponse<{ datasets: DatasetExportItem[] }>> {
+    return apiClient.get<{ datasets: DatasetExportItem[] }>('/integrator/datasets')
+  },
+  /**
+   * Unduh satu dataset.
+   *
+   * @param params filter halaman (mis. `semester_id`) — selebihnya diabaikan backend
+   * @param format `csv` (bawaan, rapi di Excel) atau `json`
+   * @param rawHeaders `true` → judul kolom memakai nama field feeder (`nim`, `sks`)
+   */
+  exportDataset(
+    dataset: string,
+    params: Record<string, unknown> = {},
+    format: ExportFormat = 'csv',
+    rawHeaders = false
+  ): Promise<void> {
+    return apiClient.download(
+      `/integrator/datasets/${dataset}/export`,
+      { ...params, format, header: rawHeaders ? 'api' : undefined },
+      `${dataset}.${format}`
+    )
   },
 
   // Unduhan ("Export as…") ---------------------------------------------------

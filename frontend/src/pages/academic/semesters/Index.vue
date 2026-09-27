@@ -9,6 +9,12 @@ import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import ConfirmModal from '@/components/feedback/ConfirmModal.vue'
+import ExportMenu from '@/components/data-display/ExportMenu.vue'
+import { useFeederExport } from '@/composables/useFeederExport'
+// Unduhan data pelaporan PDDikti / Neo Feeder untuk halaman ini.
+const { exportOptions } = useFeederExport('semesters', 'Periode akademik', {
+  note: 'seluruh semester',
+})
 
 const toast = useToast()
 const loading = ref<boolean>(false)
@@ -120,6 +126,7 @@ onMounted(() => {
           <p class="text-xs text-slate-500 mt-0.5">Manajemen Semester, Jadwal Perkuliahan, UTS, & UAS</p>
         </div>
 
+        <ExportMenu :options="exportOptions" class="ml-auto sm:ml-0" />
         <router-link to="/academic/semesters/create">
           <Button
             variant="primary"

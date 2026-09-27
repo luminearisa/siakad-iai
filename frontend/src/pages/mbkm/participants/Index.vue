@@ -10,6 +10,12 @@ import PageContainer from '@/components/data-display/PageContainer.vue'
 import Card from '@/components/ui/Card.vue'
 import MbkmStatusBadge from '@/pages/mbkm/components/MbkmStatusBadge.vue'
 import MbkmFilterBar, { type MbkmFilters } from '@/pages/mbkm/components/MbkmFilterBar.vue'
+import ExportMenu from '@/components/data-display/ExportMenu.vue'
+import { useFeederExport } from '@/composables/useFeederExport'
+// Unduhan data pelaporan PDDikti / Neo Feeder untuk halaman ini.
+const { exportOptions } = useFeederExport('activities', 'Aktivitas MBKM', {
+  note: 'seluruh peserta MBKM',
+})
 
 const router = useRouter()
 const toast = useToast()
@@ -80,6 +86,7 @@ onMounted(loadData)
           Penempatan, pembimbing, pelaksanaan, hingga penyelesaian peserta
         </p>
       </div>
+      <ExportMenu :options="exportOptions" class="ml-auto sm:ml-0" />
       <button
         type="button"
         class="text-xs font-semibold text-brand-900 hover:text-brand-950 flex items-center gap-1.5"

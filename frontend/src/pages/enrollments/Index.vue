@@ -24,6 +24,12 @@ import Input from '@/components/ui/Input.vue'
 import Select from '@/components/ui/Select.vue'
 import Pagination from '@/components/data-display/Pagination.vue'
 import PersonalScopeNotice from '@/components/feedback/PersonalScopeNotice.vue'
+import ExportMenu from '@/components/data-display/ExportMenu.vue'
+import { useFeederExport } from '@/composables/useFeederExport'
+// Unduhan data pelaporan PDDikti / Neo Feeder untuk halaman ini.
+const { exportOptions } = useFeederExport('enrollments', 'KRS mahasiswa', {
+  note: 'satu baris per mata kuliah',
+})
 
 const router = useRouter()
 const toast = useToast()
@@ -277,6 +283,7 @@ onMounted(() => {
         </div>
 
         <!-- Generate Button -->
+        <ExportMenu :options="exportOptions" class="ml-auto sm:ml-0" />
         <Button
           variant="primary"
           size="sm"

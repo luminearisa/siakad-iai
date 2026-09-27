@@ -18,6 +18,12 @@ import ClassFilters from './components/ClassFilters.vue'
 import ClassStatusBadge from './components/ClassStatusBadge.vue'
 import ClassCapacityBadge from './components/ClassCapacityBadge.vue'
 import AddLecturerModal from './components/AddLecturerModal.vue'
+import ExportMenu from '@/components/data-display/ExportMenu.vue'
+import { useFeederExport } from '@/composables/useFeederExport'
+// Unduhan data pelaporan PDDikti / Neo Feeder untuk halaman ini.
+const { exportOptions } = useFeederExport('classes', 'Kelas perkuliahan', {
+  note: 'satu baris per pengajar/jadwal',
+})
 
 const { can } = usePermissions()
 const { isLecturer } = useAuth()
@@ -211,6 +217,7 @@ onMounted(() => {
       :breadcrumbs="[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Kelas' }]"
     >
       <template #actions>
+        <ExportMenu :options="exportOptions" />
         <router-link v-if="can('classes.create')" to="/classes/create">
           <Button variant="primary" size="sm">
             <Plus class="w-3.5 h-3.5" />

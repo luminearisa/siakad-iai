@@ -42,6 +42,13 @@ Route::middleware('auth:sanctum')->prefix('integrator')->group(function () {
     Route::get('keys/export', [IntegratorExportController::class, 'keys'])
         ->middleware('permission:integrator.keys.view');
 
+    // Unduhan data pelaporan feeder dari halaman data SIAKAD (mahasiswa, kelas, KRS,
+    // nilai, kurikulum, prodi, ruang, ...). Katalog berisi dataset yang boleh diunduh
+    // pengguna; permission dicek per dataset di controller (mengikuti permission
+    // halaman asalnya, mis. `students.view` untuk Data Mahasiswa).
+    Route::get('datasets', [IntegratorExportController::class, 'datasets']);
+    Route::get('datasets/{dataset}/export', [IntegratorExportController::class, 'dataset']);
+
     // Clients (the systems allowed to pull data).
     Route::get('clients', [ApiClientController::class, 'index'])
         ->middleware('permission:integrator.clients.view');

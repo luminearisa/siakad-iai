@@ -124,3 +124,22 @@ export interface IntegratorLogStats {
     created_at?: string | null
   }>
 }
+
+/**
+ * Satu dataset pelaporan yang bisa diunduh dari halaman data SIAKAD
+ * (dipakai oleh tombol "Export as…" di halaman mahasiswa, kelas, KRS, dst.).
+ */
+export interface DatasetExportItem {
+  /** Kunci dataset di backend, mis. `students`. */
+  key: string
+  /** Nama dataset, mis. "Data Mahasiswa". */
+  label: string
+  /** Permission halaman asal yang dipakai backend untuk memfilter katalog. */
+  permission: string
+  /** Jumlah kolom pada berkas unduhan. */
+  columns: number
+  /** Parameter wajib (mis. `semester_id` untuk AKM). */
+  requires: string[]
+  /** Parameter filter yang diteruskan dari halaman. */
+  filters: string[]
+}

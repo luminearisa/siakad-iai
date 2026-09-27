@@ -1,0 +1,1 @@
+import{ae as t}from"./index-Dl5Ey2eR.js";const u={getProfile(){return t.get("/students/me/profile")},requestUpdate(e){return t.post("/students/me/request-update",e)},getKhs(e){const s=e?{semester_id:e}:void 0;return t.get("/students/me/khs",s)},getSchedules(){return t.get("/students/me/schedules")}};export{u as s};

@@ -3,25 +3,38 @@
 namespace Modules\Integrator\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Support\Traits\HasApiResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Arr;
 use Modules\Integrator\Services\IntegratorExportService;
+use Modules\Integrator\Support\ExportDownload;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Unduhan ("Export as…") untuk data yang berkaitan dengan pelaporan PDDikti /
- * Neo Feeder: log akses integrasi, rekap harian per klien, daftar klien, dan
- * daftar kunci API.
+ * Neo Feeder.
+ *
+ * Dua kelompok:
+ *  1. data integrasi — log akses, rekap harian, daftar klien & kunci API;
+ *  2. data pelaporan feeder — isi halaman Data Mahasiswa, Data Dosen, Mata Kuliah,
+ *     Kurikulum, Kelas, KRS, AKM, Nilai, Lulusan, Aktivitas, dan data referensi
+ *     (prodi/fakultas/PT/tahun ajaran/ruang). Datanya diambil dari
+ *     {@see IntegratorDataService} yang sama dengan endpoint `/integrator/v1/*`,
+ *     sehingga berkas unduhan identik dengan yang ditarik feeder.
  *
  * Format:
  *  - `?format=csv` (bawaan) — CSV UTF-8 dengan BOM supaya langsung rapi di Excel;
- *  - `?format=json` — arsip terstruktur (meta + headers + data) untuk tim integrator.
+ *  - `?format=json` — arsip terstruktur (meta + headers + data) untuk tim integrator;
+ *  - `?header=api` — judul kolom memakai nama field mentah (mis. `nim`, `sks`).
  *
  * Unduhan dibatasi {@see IntegratorExportService::MAX_ROWS} baris per berkas dan
  * setiap unduhan dicatat ke log aplikasi sebagai jejak audit.
  */
 class IntegratorExportController extends Controller
 {
+    use HasApiResponse;
+
     public function __construct(
         private readonly IntegratorExportService $exports,
     ) {}
@@ -92,6 +105,65 @@ class IntegratorExportController extends Controller
     }
 
     /**
+     * Katalog dataset pelaporan feeder yang boleh diunduh pengguna ini.
+     */
+    public function datasets(Request $request): JsonResponse
+    {
+        $catalog = $this->exports->datasetCatalog($request->user());
+
+        return $this->successResponse(
+            data: ['datasets' => $catalog],
+            message: 'Daftar dataset yang dapat diunduh berhasil diambil.',
+        );
+    }
+
+    /**
+     * Unduhan satu dataset pelaporan feeder ("Export as…" di halaman data SIAKAD).
+     *
+     * Permission mengikuti halaman asalnya (mis. `students.view` untuk Data Mahasiswa),
+     * sehingga operator tidak bisa mengunduh data di luar haknya lewat pintu ini.
+     */
+    public function dataset(Request $request, string $dataset): StreamedResponse|JsonResponse
+    {
+        $definition = $this->exports->datasetDefinition($dataset);
+
+        abort_unless(
+            $request->user()?->can($definition['permission']) ?? false,
+            403,
+            'Anda tidak memiliki hak untuk mengunduh '.$definition['label'].'.'
+        );
+
+        $required = array_values($definition['requires'] ?? []);
+        $missing = array_filter($required, static fn (string $key) => blank($request->query($key)));
+
+        if ($missing !== []) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Lengkapi parameter berikut sebelum mengunduh: '.implode(', ', $missing).'.',
+                'errors' => ['missing' => array_values($missing)],
+            ], 422);
+        }
+
+        $data = $this->exports->datasetRows($definition, $request);
+
+        $meta = $this->exports->meta($dataset, $this->filters($request, $definition)) + [
+            'dataset_label' => $definition['label'],
+            'source' => 'SIAKAD → data pelaporan PDDikti / Neo Feeder',
+        ];
+
+        return ExportDownload::stream(
+            request: $request,
+            dataset: $dataset,
+            basename: $definition['basename'] ?? $dataset,
+            headers: $data['headers'],
+            rows: $data['rows'],
+            meta: $meta,
+            rowLimit: IntegratorExportService::MAX_ROWS,
+            dataKeys: $data['keys'] ?? null,
+        );
+    }
+
+    /**
      * @param  array{headers: array<int, string>, rows: iterable<int, array<int, mixed>>}  $data
      * @param  array<string, mixed>  $filters
      */
@@ -102,82 +174,32 @@ class IntegratorExportController extends Controller
         array $data,
         array $filters,
     ): StreamedResponse {
-        $format = $this->format($request);
-        $headers = $data['headers'];
-        $rows = $data['rows'];
-        $meta = $this->exports->meta($dataset, $filters) + [
-            'format' => $format,
-            'generated_by' => $request->user()?->only(['id', 'name', 'email']),
-        ];
-
-        $filename = $basename.'-'.now()->format('Ymd-His').'.'.$format;
-
-        // Jejak audit: siapa mengunduh data integrasi PDDikti, kapan, dan dengan filter apa.
-        Log::info('integrator.export', $meta);
-
-        return response()->streamDownload(
-            function () use ($headers, $rows, $format, $meta): void {
-                $out = fopen('php://output', 'wb');
-
-                if ($out === false) {
-                    return;
-                }
-
-                $flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE;
-
-                if ($format === 'json') {
-                    fwrite($out, '{"meta":'.json_encode($meta, $flags).',"headers":'.json_encode($headers, $flags).',"data":[');
-
-                    $count = 0;
-
-                    foreach ($rows as $row) {
-                        $record = count($row) === count($headers) ? array_combine($headers, $row) : array_values($row);
-
-                        fwrite($out, ($count === 0 ? '' : ',').json_encode($record, $flags));
-                        $count++;
-                    }
-
-                    fwrite($out, '],"rows":'.$count.'}');
-                } else {
-                    // BOM UTF-8 agar Excel (khususnya versi Windows) tidak merusak aksen.
-                    fwrite($out, "\xEF\xBB\xBF");
-
-                    fputcsv($out, $headers, ',', '"', '');
-
-                    foreach ($rows as $row) {
-                        fputcsv($out, array_map($this->csvCell(...), $row), ',', '"', '');
-                    }
-                }
-
-                fclose($out);
-            },
-            $filename,
-            [
-                'Content-Type' => $format === 'json' ? 'application/json; charset=UTF-8' : 'text/csv; charset=UTF-8',
-                'X-Export-Row-Limit' => (string) IntegratorExportService::MAX_ROWS,
-                'X-Export-Dataset' => $dataset,
-            ],
+        return ExportDownload::stream(
+            request: $request,
+            dataset: $dataset,
+            basename: $basename,
+            headers: $data['headers'],
+            rows: $data['rows'],
+            meta: $this->exports->meta($dataset, $filters),
+            rowLimit: IntegratorExportService::MAX_ROWS,
+            dataKeys: $data['keys'] ?? null,
         );
     }
 
     /**
-     * Nilai sel CSV yang aman dibuka di Excel: tanda kutip di depan untuk teks yang
-     * diawali karakter formula, sehingga tidak ada data pengguna yang dieksekusi
-     * sebagai rumus (CSV injection).
+     * Filter yang dipakai untuk meta berkas: hanya parameter yang relevan dengan dataset.
+     *
+     * @param  array<string, mixed>  $definition
+     * @return array<string, mixed>
      */
-    private function csvCell(mixed $value): string
+    private function filters(Request $request, array $definition): array
     {
-        if ($value === null) {
-            return '';
-        }
+        $allowed = array_values($definition['filters'] ?? []);
 
-        $text = is_scalar($value) ? (string) $value : (string) json_encode($value, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
-
-        if ($text !== '' && ! is_numeric($text) && preg_match('/^[=+\-@\t\r]/', $text) === 1) {
-            return "'".$text;
-        }
-
-        return $text;
+        return array_filter(
+            Arr::only($request->query(), $allowed),
+            static fn ($value) => $value !== null && $value !== ''
+        );
     }
 
     /**
