@@ -136,6 +136,68 @@ final class Database
             'indexes2' => <<<'SQL'
                 CREATE INDEX IF NOT EXISTS feeder_reference_kind_idx ON feeder_reference (kind)
             SQL,
+            'validation_runs' => <<<'SQL'
+                CREATE TABLE IF NOT EXISTS validation_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL UNIQUE,
+                    scope TEXT NOT NULL,
+                    semester TEXT,
+                    entities TEXT,
+                    status TEXT NOT NULL,
+                    total_records INTEGER NOT NULL DEFAULT 0,
+                    total_valid INTEGER NOT NULL DEFAULT 0,
+                    total_invalid INTEGER NOT NULL DEFAULT 0,
+                    total_findings INTEGER NOT NULL DEFAULT 0,
+                    total_synced INTEGER NOT NULL DEFAULT 0,
+                    percentage REAL NOT NULL DEFAULT 0,
+                    message TEXT,
+                    started_at TEXT NOT NULL,
+                    finished_at TEXT
+                )
+            SQL,
+            'validation_findings' => <<<'SQL'
+                CREATE TABLE IF NOT EXISTS validation_findings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    entity TEXT NOT NULL,
+                    local_key TEXT,
+                    field TEXT,
+                    code TEXT NOT NULL,
+                    severity TEXT NOT NULL,
+                    message TEXT,
+                    hint TEXT,
+                    prodi TEXT,
+                    period TEXT,
+                    entity_level INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                )
+            SQL,
+            'coverage_stats' => <<<'SQL'
+                CREATE TABLE IF NOT EXISTS coverage_stats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT,
+                    entity TEXT NOT NULL,
+                    period TEXT NOT NULL DEFAULT '-',
+                    prodi TEXT NOT NULL DEFAULT '-',
+                    prodi_label TEXT,
+                    total INTEGER NOT NULL DEFAULT 0,
+                    valid INTEGER NOT NULL DEFAULT 0,
+                    invalid INTEGER NOT NULL DEFAULT 0,
+                    warnings INTEGER NOT NULL DEFAULT 0,
+                    synced INTEGER NOT NULL DEFAULT 0,
+                    pending INTEGER NOT NULL DEFAULT 0,
+                    stale INTEGER NOT NULL DEFAULT 0,
+                    percentage REAL NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE (entity, period, prodi)
+                )
+            SQL,
+            'indexes3' => <<<'SQL'
+                CREATE INDEX IF NOT EXISTS validation_findings_run_idx ON validation_findings (run_id, severity)
+            SQL,
+            'indexes4' => <<<'SQL'
+                CREATE INDEX IF NOT EXISTS coverage_stats_entity_idx ON coverage_stats (entity, period)
+            SQL,
         ];
 
         foreach ($statements as $name => $sql) {
@@ -149,6 +211,11 @@ final class Database
         // Column added after the first release: bring older databases up to date
         // without asking the operator to delete their ledger.
         $this->ensureColumn('sync_runs', 'planned', 'INTEGER NOT NULL DEFAULT 0');
+        $this->ensureColumn('sync_runs', 'invalid', 'INTEGER NOT NULL DEFAULT 0');
+
+        // Kategori + saran penanganan error feeder (katalog error) pada riwayat.
+        $this->ensureColumn('sync_logs', 'category', 'TEXT');
+        $this->ensureColumn('sync_logs', 'hint', 'TEXT');
 
         return array_keys($statements);
     }

@@ -18,6 +18,7 @@ final class RunResult
         public int $failed = 0,
         public int $skipped = 0,
         public int $planned = 0,
+        public int $invalid = 0,
         public ?string $error = null,
         public float $durationSeconds = 0.0,
         public int $pages = 0
@@ -26,7 +27,7 @@ final class RunResult
 
     public function ok(): bool
     {
-        return $this->error === null;
+        return $this->error === null && $this->failed === 0 && $this->invalid === 0;
     }
 
     /**
@@ -39,6 +40,7 @@ final class RunResult
             "berhasil {$this->succeeded}",
             "dilewati {$this->skipped}",
             "gagal {$this->failed}",
+            "tidak valid {$this->invalid}",
         ];
 
         if ($this->mode === 'dry-run') {

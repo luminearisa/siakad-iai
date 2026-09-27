@@ -168,6 +168,10 @@ persis akan dilewati):
 | Baris sudah pernah dikirim dan payload tidak berubah | **dilewati** (`unchanged`) — tidak ada panggilan feeder |
 | Baris sudah dipetakan pada endpoint insert-only | dilewati, tidak pernah dobel-insert |
 | Kolom wajib kosong (mis. `id_prodi` tidak ketemu) | dilewati + pesan `Kolom wajib belum lengkap: ...` |
+| Baris melanggar aturan Neo Feeder (NIK/NISN/HP/email, id referensi tidak dikenal, komposisi SKS) | **tidak dikirim**, dicatat `invalid` + saran perbaikan (lihat halaman Validasi) |
+| Pesan error feeder tidak jelas | diterjemahkan katalog error menjadi kategori + langkah penanganan (mis. `ketergantungan`, `duplikat`, `periode`) |
+| Feeder menolak karena bentuk body berbeda | permintaan diulang sekali dengan bentuk lain (`record` ⇄ `flat`) lalu bentuk yang berhasil dipakai seterusnya |
+| Server feeder sering sibuk | jeda antar baris dapat diatur (`request_delay_ms`) |
 | Feeder menolak (`error_code != 0`) | dicatat lengkap dengan payload + respons PDDikti |
 | 200 kegagalan berturut-turut | run dihentikan otomatis agar tidak membanjiri feeder |
 | Mode dry-run | membaca & memetakan semua, tidak memanggil feeder |
@@ -175,6 +179,50 @@ persis akan dilewati):
 
 Semua keputusan tersimpan di `sync_logs` (bisa diekspor/dibaca lewat halaman Log),
 sehingga operator bisa membuktikan apa yang dikirim ke PDDikti dan kapan.
+
+## 6b. Memeriksa kesiapan pelaporan sebelum mengirim
+
+Sinkronisasi menjawab "apa yang sudah terkirim"; pemeriksaan validasi menjawab dua
+pertanyaan operator yang lebih penting di akhir semester: **data mana yang akan
+ditolak feeder** dan **seberapa lengkap laporan per program studi**.
+
+```bash
+# periksa semua entity (butuh semester untuk entity perkuliahan)
+php bin/console validate:run --semester=20251
+
+# periksa satu entity + batasi baris
+php bin/console validate:run students --limit=200
+
+# lihat persentase pelaporan dari pemeriksaan terakhir
+php bin/console report:summary
+```
+
+Di web: menu **Validasi** menampilkan status versi feeder, tombol pemeriksaan, rekap
+alasan tidak valid, **persentase pelaporan per program studi**, dan daftar temuan yang
+bisa difilter (entity/tingkat/kata kunci). Pemeriksaan tidak mengirim apa pun ke feeder.
+
+Aturan validasi hidup di `config/feeder_rules.php` (data, bukan kode) dan mengikuti
+aturan Neo Feeder 3.x:
+
+| Aturan | Catatan |
+|---|---|
+| NIK 16 digit, NISN 10 digit | dicek format; kolom ter-mask (kunci API tanpa scope `students.pii`) dilaporkan sebagai temuan tersendiri |
+| Nomor HP wajib + format `08…` | wajib sejak patch 3.0.1; `+62`/`62` ditolak PDDikti |
+| `jenis_kelamin` `L`/`P` | sesuai dokumentasi Web Service (`InsertBiodataMahasiswa`) |
+| Email valid | dipakai PDDikti untuk verifikasi OTP pelaporan |
+| `id_prodi`/`id_semester`/`id_dosen` harus ada di referensi | mencegah penolakan "data tidak ditemukan" |
+| Komposisi SKS = SKS mata kuliah, jumlah mahasiswa ≤ kapasitas | penolakan yang paling sering terjadi dari sisi kurikulum & kelas |
+| IPS/IPK 0–4, nilai 0–100, indeks 0–4 | konsistensi nilai sebelum AKM |
+| Nomor ijazah tidak dikirim untuk D3/D4/S1/S2/S3 | aturan patch 3.0.1 (PDDikti mengisi sendiri) |
+
+`notes` pada file yang sama menampilkan catatan tingkat entity — misalnya pemetaan yang
+masih memakai nilai default (`id_agama=1`, `id_pembiayaan=1`, `jumlah_sks_pilihan=0`)
+atau kolom yang belum ada di SIAKAD (tanggal terbit ijazah) — supaya tidak salah lapor.
+
+> Versi feeder dicatat saat **Uji koneksi** (dashboard) atau `feeder:ping`. Bila versi
+> tidak terbaca otomatis, isi manual di halaman Pengaturan; halaman Validasi dan
+> dashboard akan mengingatkan bila versinya di bawah minimum yang divalidasi
+> (saat ini 3.0.1).
 
 ## 7. Mengubah pemetaan kolom
 
@@ -215,9 +263,15 @@ php bin/console user:password <email> <sandi>
 php bin/console siakad:ping
 php bin/console feeder:ping
 php bin/console sync:list
-php bin/console sync:run <entity> [--dry-run|--live] [--limit=N] [--semester=20251] [--force] [--with-dependencies]
-php bin/console logs:tail [--entity=students] [--status=failed] [--limit=20]
+php bin/console sync:run <entity> [--dry-run|--live] [--limit=N] [--semester=20251] [--force]
+                                 [--skip-validation] [--with-dependencies]
+php bin/console validate:run [entity] [--semester=20251] [--limit=N] [--max-findings=N] [--no-store] [--no-notes]
+php bin/console report:summary [--semester=20251]
+php bin/console logs:tail [--entity=students] [--status=failed] [--category=duplikat] [--limit=20]
 ```
+
+`validate:run` mengembalikan kode keluar `1` bila masih ada baris yang akan ditolak
+feeder, sehingga bisa dipakai sebagai gerbang pada cron/CI sebelum sinkronisasi live.
 
 ## 9. Struktur folder
 

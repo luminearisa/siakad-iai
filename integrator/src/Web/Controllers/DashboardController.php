@@ -34,8 +34,18 @@ final class DashboardController
             }
         }
 
+        $version = $this->app->settings()->get('feeder_version');
+
         return Response::html($this->app->view()->page('dashboard/index', [
             'title' => 'Dashboard',
+            'coverageTotals' => $this->app->validationRepository()->coverageTotals(),
+            'coverageProdi' => array_slice($this->app->validationRepository()->coverageByProdi(null, 20), 0, 5),
+            'validationRun' => $this->app->validationRepository()->latestRun(),
+            'topCodes' => $this->app->validationRepository()->findingsByCode(null, 5),
+            'feederVersion' => is_string($version) ? $version : null,
+            'minimumVersion' => $this->app->validator()->minimumFeederVersion(),
+            'versionOk' => $this->app->validator()->versionCompatible(is_string($version) ? $version : null),
+            'categoryCounts' => $this->app->logRepository()->countsByCategory(),
             'settings' => $settings,
             'snapshot' => $snapshot,
             'siakadError' => $siakadError,
@@ -44,7 +54,7 @@ final class DashboardController
             'referenceCounts' => $this->app->references()->counts(),
             'totals' => $this->app->logRepository()->totalsByStatus(),
             'runs' => $this->app->logRepository()->runs(10),
-            'failures' => $this->app->logRepository()->topFailures(5),
+            'failures' => $this->app->logRepository()->failuresWithHints(5),
             'entities' => $this->app->registry()->all(),
             'referenceFresh' => $this->app->references()->isFresh(),
         ]));

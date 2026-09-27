@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Integrator;
 
+use Integrator\NeoFeeder\ErrorCatalog;
 use Integrator\NeoFeeder\NeoFeederClient;
+use Integrator\Reporting\ValidationPass;
 use Integrator\Siakad\SiakadClient;
 use Integrator\Support\Auth;
 use Integrator\Support\Config;
@@ -19,6 +21,8 @@ use Integrator\Sync\ReferenceResolver;
 use Integrator\Sync\Registry;
 use Integrator\Sync\SyncLogRepository;
 use Integrator\Sync\SyncRunner;
+use Integrator\Validation\FeederValidator;
+use Integrator\Validation\ValidationRepository;
 
 /**
  * Dependency holder for the integrator application.
@@ -48,6 +52,14 @@ final class App
     private ?Registry $registry = null;
 
     private ?FieldMapper $mapper = null;
+
+    private ?FeederValidator $validator = null;
+
+    private ?ErrorCatalog $errorCatalog = null;
+
+    private ?ValidationRepository $validationRepository = null;
+
+    private ?ValidationPass $validationPass = null;
 
     public function __construct(private readonly string $root)
     {
@@ -110,7 +122,8 @@ final class App
             password: (string) $this->settings()->get('feeder_password'),
             sandbox: $this->settings()->bool('feeder_sandbox', true),
             cachePath: $this->root('storage/cache/feeder-token.json'),
-            verifySsl: $this->settings()->bool('feeder_verify_ssl', false)
+            verifySsl: $this->settings()->bool('feeder_verify_ssl', false),
+            payloadStyle: (string) $this->settings()->get('feeder_payload_style', 'record')
         );
     }
 
@@ -122,6 +135,7 @@ final class App
         $this->siakad = null;
         $this->feeder = null;
         $this->runner = null;
+        $this->validationPass = null;
     }
 
     public function mapper(): FieldMapper
@@ -149,6 +163,42 @@ final class App
         return new SyncLogRepository($this->database());
     }
 
+    public function validator(): FeederValidator
+    {
+        return $this->validator ??= FeederValidator::load(
+            $this->root('config/feeder_rules.php'),
+            require $this->root('config/feeder_mapping.php'),
+            $this->references()
+        );
+    }
+
+    public function errorCatalog(): ErrorCatalog
+    {
+        return $this->errorCatalog ??= ErrorCatalog::load($this->root('config/feeder_errors.php'));
+    }
+
+    public function validationRepository(): ValidationRepository
+    {
+        return $this->validationRepository ??= new ValidationRepository($this->database());
+    }
+
+    /**
+     * Pemeriksaan kesiapan pelaporan (validasi aturan feeder + cakupan per prodi).
+     */
+    public function validationPass(): ValidationPass
+    {
+        return $this->validationPass ??= new ValidationPass(
+            siakad: $this->siakad(),
+            registry: $this->registry(),
+            validator: $this->validator(),
+            repository: $this->validationRepository(),
+            mappings: $this->mappings(),
+            references: $this->references(),
+            settings: $this->settings(),
+            db: $this->database()
+        );
+    }
+
     public function runner(): SyncRunner
     {
         return $this->runner ??= new SyncRunner(
@@ -158,7 +208,10 @@ final class App
             registry: $this->registry(),
             mappings: $this->mappings(),
             references: $this->references(),
-            logRepository: $this->logRepository()
+            logRepository: $this->logRepository(),
+            validator: $this->validator(),
+            errorCatalog: $this->errorCatalog(),
+            settings: $this->settings()
         );
     }
 

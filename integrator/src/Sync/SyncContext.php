@@ -60,8 +60,16 @@ final class SyncContext
      *
      * @param  array<string, mixed>  $context
      */
-    public function log(string $action, string $status, ?string $localKey, ?string $feederId, ?string $message, array $context = []): void
-    {
+    public function log(
+        string $action,
+        string $status,
+        ?string $localKey,
+        ?string $feederId,
+        ?string $message,
+        array $context = [],
+        ?string $category = null,
+        ?string $hint = null
+    ): void {
         $this->db->insert('sync_logs', [
             'run_id' => $this->runId,
             'entity' => $this->entity,
@@ -71,6 +79,8 @@ final class SyncContext
             'feeder_id' => $feederId,
             'message' => $message,
             'response' => $context === [] ? null : json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'category' => $category,
+            'hint' => $hint,
             'created_at' => $this->db->now(),
         ]);
     }

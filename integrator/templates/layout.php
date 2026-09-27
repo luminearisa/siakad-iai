@@ -11,6 +11,7 @@ $user = $app?->auth()->user();
 
 $links = [
     '' => 'Dashboard',
+    'validation' => 'Validasi',
     'sync' => 'Sinkronisasi',
     'logs' => 'Log',
     'mappings' => 'Pemetaan ID',

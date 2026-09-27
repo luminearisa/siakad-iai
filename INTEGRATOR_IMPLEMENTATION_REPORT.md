@@ -143,13 +143,80 @@ Urutan operasional yang disarankan sebelum mode live:
 → `activities` → `graduates` (terakhir, setelah yudisium final karena data lulusan tidak
 bisa dihapus di PDDikti).
 
+## 6b. Pembaruan: validasi kesiapan pelaporan (rujukan ProFeeder, Open Feeder, Neo Feeder 3.x)
+
+Pembaruan ini berangkat dari analisis produk sejenis — **SEVIMA ProFeeder**, **Open Feeder
+(Suteki)**, dan fitur bawaan **Neo Feeder 3.0.1/3.1** — lalu menambahkan yang belum ada di
+integrator tanpa menduplikasi data akademik.
+
+### Yang ditemukan pada produk pembanding
+
+| Sumber | Fitur/kebijakan yang relevan |
+|---|---|
+| ProFeeder (SEVIMA) | Dashboard status pelaporan *real-time*, **persentase pelaporan**, **pratinjau pelaporan**, **rekap data tidak valid menurut aturan Neo Feeder**, **validasi data akademik**, **komparasi data SIAKAD vs PDDikti**, pembukaan periode pelaporan **per prodi**, simulasi PIN, pengguna aplikasi berperan |
+| Open Feeder (Suteki) | Impor massal, validasi & pemetaan sebelum kirim, **monitoring + log aktivitas**, pengaturan preferensi sinkronisasi |
+| Neo Feeder 3.0.1/3.1 (resmi) | **Nomor HP wajib** pada biodata + format `08…` (tanpa `+62`), validasi email (OTP pelaporan), kolom **tanggal terbit ijazah** pada data kelulusan, aturan **nomor ijazah dikosongkan untuk D3/D4/S1/S2/S3**, akun khusus WS, kewajiban patch terbaru, sinkronisasi per grup tabel, jalur lulus UKOM |
+| Dokumentasi Web Service PDDikti | Fungsi tulis memakai body `{"act":..., "token":..., "record":{...}}`; `jenis_kelamin` bernilai `L`/`P`; `GetDictionary` untuk memastikan nama kolom per versi |
+
+### Yang ditambahkan ke integrator
+
+1. **Mesin validasi aturan feeder** (`config/feeder_rules.php` + `src/Validation/`)
+   - Pemeriksaan per baris sebelum dikirim: NIK 16 digit, NISN 10 digit, **nomor HP wajib
+     format `08…`**, email valid, tanggal (termasuk larangan tanggal masa depan),
+     `jenis_kelamin` `L`/`P`, nilai 0–100/indeks 0–4, IPS/IPK 0–4, SKS > 0.
+   - **Konsistensi antar kolom**: komposisi SKS mata kuliah = SKS totalnya, jumlah mahasiswa
+     kelas ≤ kapasitas, IPS wajib bila SKS semester terisi, tanggal selesai ≥ tanggal mulai.
+   - **Keberadaan data referensi**: `id_prodi`, `id_semester`, `id_dosen` harus ada pada hasil
+     tarikan referensi feeder.
+   - **Deteksi kolom ter-mask**: bila kunci API SIAKAD tidak memegang scope `students.pii`,
+     nilai PII dikirim tertutup (`3174**********01`) — dilaporkan sebagai temuan tersendiri
+     dengan instruksi menambah scope, bukan dibiarkan lolos.
+   - **Pembedaan error vs ketergantungan**: baris yang menunggu sinkronisasi entitas induk
+     dicatat sebagai `warning` (tidak dikirim lebih dulu), bukan dianggap data salah.
+   - **Catatan tingkat entity** untuk pemetaan yang masih memakai nilai default
+     (`id_agama=1`, `id_pembiayaan=1`, `jumlah_sks_pilihan=0`, `id_jenis_keluar=1`) dan untuk
+     kolom yang belum ada di SIAKAD (tanggal terbit ijazah).
+2. **Gerbang validasi di pipeline sinkronisasi**: baris yang pasti ditolak feeder ditandai
+   `invalid`, **tidak dikirim**, dan dihitung terpisah dari kegagalan pengiriman (bisa
+   dimatikan lewat `--skip-validation` atau Pengaturan).
+3. **Halaman Validasi + `validate:run` + `report:summary`**: rekap alasan tidak valid,
+   cakupan per entity, dan **persentase pelaporan per program studi** (padanan fitur
+   ProFeeder "persentase pelaporan per prodi"). Kode keluar `1` bila masih ada baris tidak
+   valid, sehingga bisa dipakai sebagai gerbang cron sebelum sinkronisasi live.
+4. **Katalog error** (`config/feeder_errors.php`): pesan feeder diterjemahkan menjadi kategori
+   (autentikasi, hak akses, ketergantungan, duplikat, periode, referensi, validasi data,
+   SKS/nilai, kelulusan, ketersediaan, versi/patch) + langkah penanganan, dipakai di log,
+   dashboard, dan rekap kegagalan.
+5. **Kepatuhan patch Web Service**: body fungsi tulis dibungkus `record` sesuai dokumentasi
+   resmi, dengan **fallback otomatis** ke bentuk datar bila instalasi menolak (dan sebaliknya),
+   plus pencatatan versi feeder saat uji koneksi + peringatan bila di bawah minimum.
+6. **Jeda antar baris** (`request_delay_ms`) agar server feeder yang sibuk tidak dibanjiri.
+
+### Temuan yang ikut diperbaiki
+
+- `IntegratorDataService` kini mengirim `study_program_degree` pada payload lulusan supaya
+  aturan nomor ijazah per jenjang (patch 3.0.1) bisa divalidasi.
+- Kolom **tanggal terbit ijazah** belum ada di model yudisium SIAKAD; ini dilaporkan sebagai
+  catatan pada halaman Validasi, bukan diisi nilai karangan.
+- Aturan `jenis_kelamin` sempat ditulis 1/2 dan **dikoreksi menjadi `L`/`P`** setelah
+  diverifikasi ke dokumentasi Web Service PDDikti.
+
+### Belum dikerjakan (sengaja)
+
+- **Komparasi data SIAKAD vs PDDikti (Daftar BBM)** ala ProFeeder: perlu menarik balik
+  `GetList*` per entity lalu membandingkan field per field dengan tabel `mappings`.
+- **Simulasi PIN mahasiswa**: menunggu aturan kelayakan PIN resmi (bukan menebak).
+- Impor massal Excel (padanan Open Feeder) — tidak relevan karena data berasal dari SIAKAD.
+- Notifikasi email/WhatsApp dan ekspor CSV temuan.
+
 ## 7. Langkah berikutnya (belum dikerjakan)
 
 - Entity MBKM ke `InsertAktivitasMahasiswa` (kategori kegiatan sudah ditarik; tinggal
   memetakan MbkmParticipant + rekognisi SKS) dan `InsertUjiMahasiswa` untuk penguji.
 - Tombol "jalankan semua entity" dari UI integrator (sekarang via
   `--with-dependencies` di CLI).
-- Notifikasi (email/WhatsApp) ketika run gagal, plus ekspor CSV log.
+- Notifikasi (email/WhatsApp) ketika run gagal, plus ekspor CSV log/temuan validasi.
 - Jadwal cron per semester yang otomatis mengikuti semester aktif.
 - Uji terhadap instalasi Neo Feeder nyata di sandbox kampus (mock hanya meniru
   validasi umum; validasi kolom wajib diverifikasi lewat `GetDictionary`).
+- Komparasi data SIAKAD vs PDDikti (padanan "Daftar BBM") dan ekspor CSV temuan validasi.

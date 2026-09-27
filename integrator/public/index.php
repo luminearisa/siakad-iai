@@ -15,6 +15,7 @@ use Integrator\Web\Controllers\MappingController;
 use Integrator\Web\Controllers\ReferenceController;
 use Integrator\Web\Controllers\SettingsController;
 use Integrator\Web\Controllers\SyncController;
+use Integrator\Web\Controllers\ValidationController;
 use Integrator\Web\Router;
 
 $root = dirname(__DIR__);
@@ -51,6 +52,10 @@ $router->get('/sync', [SyncController::class, 'index']);
 $router->post('/sync/run', [SyncController::class, 'run']);
 $router->get('/sync/run/{runId}', [SyncController::class, 'show']);
 $router->post('/sync/retry', [SyncController::class, 'retryRow']);
+
+$router->get('/validation', [ValidationController::class, 'index']);
+$router->post('/validation/run', [ValidationController::class, 'run']);
+$router->post('/validation/purge', [ValidationController::class, 'purge']);
 
 $router->get('/logs', [LogController::class, 'index']);
 

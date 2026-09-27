@@ -21,6 +21,7 @@ declare(strict_types=1);
 use Integrator\App;
 use Integrator\Siakad\SiakadException;
 use Integrator\Support\Config;
+use Integrator\Reporting\ValidationOptions;
 use Integrator\Support\Crypto;
 use Integrator\Sync\SyncOptions;
 
@@ -85,7 +86,13 @@ $usage = static function () use ($ok): void {
       siakad:ping                   Uji API key SIAKAD dan tampilkan scope
       feeder:ping                   Uji login Web Service Neo Feeder
       sync:list                     Daftar entity beserta urutannya
-      sync:run <entity> [--dry-run] [--limit=N] [--semester=20251] [--force] [--with-dependencies]
+      sync:run <entity> [--dry-run] [--limit=N] [--semester=20251] [--force] [--skip-validation]
+                          [--with-dependencies]
+      validate:run [entity] [--semester=20251] [--limit=N] [--max-findings=N]
+                          [--no-store] [--no-notes]
+                                    Periksa data terhadap aturan Neo Feeder + hitung cakupan per prodi
+      report:summary [--semester=20251]
+                                    Tampilkan persentase pelaporan dari pemeriksaan terakhir
       logs:tail [--entity=students] [--status=failed] [--limit=20]
 
 TEXT);
@@ -193,6 +200,24 @@ switch ($command) {
             fwrite(STDOUT, '  PT: '.($ping['profile']['nama_perguruan_tinggi'] ?? '-').PHP_EOL);
             fwrite(STDOUT, '  kode: '.($ping['profile']['kode_perguruan_tinggi'] ?? '-').PHP_EOL);
         }
+
+        // Patch feeder memengaruhi aturan validasi, jadi versinya dicatat bila bisa dibaca.
+        $detected = $app->feeder()->detectVersion();
+        $app->settings()->set('feeder_version_checked_at', gmdate('Y-m-d H:i:s'));
+
+        if ($detected !== null) {
+            $app->settings()->set('feeder_version', $detected['version']);
+            fwrite(STDOUT, '  versi terdeteksi: '.$detected['version'].' ('.$detected['source'].')'.PHP_EOL);
+        } else {
+            $version = $app->settings()->get('feeder_version');
+            fwrite(STDOUT, '  versi tidak bisa dibaca otomatis; tercatat: '.($version ?? 'belum diisi').PHP_EOL);
+        }
+
+        $minimum = $app->validator()->minimumFeederVersion();
+
+        if (! $app->validator()->versionCompatible((string) $app->settings()->get('feeder_version'))) {
+            fwrite(STDOUT, "  \033[33m!\033[0m versi minimum yang divalidasi aplikasi ini: ".$minimum.PHP_EOL);
+        }
         break;
 
     case 'sync:list':
@@ -225,7 +250,8 @@ switch ($command) {
             dryRun: array_key_exists('dry-run', $options) || ! array_key_exists('live', $options),
             semesterCode: isset($options['semester']) && is_string($options['semester']) ? $options['semester'] : null,
             limit: isset($options['limit']) && is_numeric($options['limit']) ? (int) $options['limit'] : 0,
-            force: array_key_exists('force', $options)
+            force: array_key_exists('force', $options),
+            skipValidation: array_key_exists('skip-validation', $options)
         );
 
         if (array_key_exists('live', $options) && array_key_exists('dry-run', $options)) {
@@ -254,6 +280,119 @@ switch ($command) {
                 $result->mode === 'dry-run' ? " rencana={$result->planned}" : ''
             ));
         }
+        break;
+
+    case 'validate:run':
+        [$options, $positional] = $parse($arguments);
+        $entity = isset($positional[0]) && is_string($positional[0]) ? $positional[0] : null;
+
+        try {
+            $summary = $app->validationPass()->run(ValidationOptions::fromArray([
+                'entity' => $entity,
+                'semester' => $options['semester'] ?? null,
+                'limit' => $options['limit'] ?? null,
+                'max_findings' => $options['max-findings'] ?? null,
+                'no_store' => array_key_exists('no-store', $options),
+                'no_notes' => array_key_exists('no-notes', $options),
+            ]));
+        } catch (Throwable $exception) {
+            $fail('Validasi gagal dijalankan: '.$exception->getMessage());
+        }
+
+        fwrite(STDOUT, "\n\033[1mValidasi pelaporan\033[0m (".$summary->scope.', semester '.($summary->semester ?? '-').")\n\n");
+        fwrite(STDOUT, sprintf("  %-24s %8s %8s %9s %9s %9s\n", 'entity', 'total', 'valid', 'tidak', 'sinkron', 'cakupan'));
+
+        foreach ($summary->rows() as $row) {
+            fwrite(STDOUT, sprintf("  %-24s %8s %8s %9s %9s %9s\n", $row[0], $row[1], $row[2], $row[3], $row[4], $row[5]));
+        }
+
+        fwrite(STDOUT, PHP_EOL);
+
+        if ($summary->errors !== []) {
+            foreach ($summary->errors as $error) {
+                fwrite(STDOUT, "  \033[33m!\033[0m ".$error.PHP_EOL);
+            }
+
+            fwrite(STDOUT, PHP_EOL);
+        }
+
+        if ($summary->stored) {
+            $top = $app->validationRepository()->findingsByCode($summary->runId, 10);
+
+            if ($top !== []) {
+                fwrite(STDOUT, "\033[1mAlasan tidak valid terbanyak\033[0m\n");
+
+                foreach ($top as $finding) {
+                    fwrite(STDOUT, sprintf("  %-34s %5d\n", $finding['code'], (int) $finding['total']));
+                }
+
+                fwrite(STDOUT, PHP_EOL);
+            }
+        }
+
+        if (! $summary->ok()) {
+            fwrite(STDOUT, "\033[31mAda data yang akan ditolak feeder.\033[0m Rinciannya di halaman Validasi / tabel validation_findings.".PHP_EOL);
+            exit(1);
+        }
+
+        $ok('Semua data yang diperiksa lolos aturan Neo Feeder. '.$summary->summary());
+        break;
+
+    case 'report:summary':
+        [$options] = $parse($arguments);
+        $semester = isset($options['semester']) && is_string($options['semester']) ? $options['semester'] : null;
+        $repository = $app->validationRepository();
+        $latest = $repository->latestRun();
+
+        if ($latest === null) {
+            $fail('Belum ada pemeriksaan. Jalankan `validate:run` lebih dulu.');
+        }
+
+        $totals = $repository->coverageTotals($semester);
+
+        fwrite(STDOUT, "\n\033[1mPersentase pelaporan\033[0m (pemeriksaan ".$latest['run_id'].', semester '.($semester ?? $latest['semester'] ?? '-').")\n\n");
+        fwrite(STDOUT, sprintf("  %-24s %8s %8s %9s %9s %9s\n", 'entity', 'total', 'valid', 'tidak', 'sinkron', 'cakupan'));
+
+        foreach ($repository->coverageByEntity($semester) as $row) {
+            fwrite(STDOUT, sprintf(
+                "  %-24s %8s %8s %9s %9s %8s%%\n",
+                $row['entity'],
+                number_format((int) $row['total'], 0, ',', '.'),
+                number_format((int) $row['valid'], 0, ',', '.'),
+                number_format((int) $row['invalid'], 0, ',', '.'),
+                number_format((int) $row['synced'], 0, ',', '.'),
+                number_format((float) $row['percentage'], 2, ',', '.')
+            ));
+        }
+
+        $prodi = $repository->coverageByProdi($semester, 15);
+
+        if ($prodi !== []) {
+            fwrite(STDOUT, "\n\033[1mPer program studi\033[0m\n");
+
+            foreach ($prodi as $row) {
+                $total = (int) $row['total'];
+                $synced = (int) $row['synced'];
+                $percentage = $total > 0 ? round($synced / $total * 100, 2) : 0.0;
+
+                fwrite(STDOUT, sprintf(
+                    "  %-40s %6s/%6s %8s%%\n",
+                    (string) ($row['prodi_label'] ?? $row['prodi']),
+                    number_format($synced, 0, ',', '.'),
+                    number_format($total, 0, ',', '.'),
+                    number_format($percentage, 2, ',', '.')
+                ));
+            }
+        }
+
+        fwrite(STDOUT, PHP_EOL);
+        fwrite(STDOUT, 'Total: '.number_format((int) $totals['total'], 0, ',', '.').' baris, cakupan '.number_format((float) $totals['percentage'], 2, ',', '.').'%'.PHP_EOL);
+
+        if ((int) $totals['invalid'] > 0) {
+            fwrite(STDOUT, "\033[33m!\033[0m ".number_format((int) $totals['invalid'], 0, ',', '.').' baris tidak valid — jalankan `validate:run` untuk rinciannya.'.PHP_EOL);
+        }
+
+        fwrite(STDOUT, PHP_EOL);
         break;
 
     case 'logs:tail':

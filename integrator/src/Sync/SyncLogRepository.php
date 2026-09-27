@@ -103,6 +103,39 @@ final class SyncLogRepository
     /**
      * @return array<string, int>
      */
+    /**
+     * Rekap kegagalan per kategori katalog error (autentikasi, ketergantungan, …).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function countsByCategory(int $limit = 20): array
+    {
+        return $this->db->select(
+            "SELECT category, COUNT(*) AS total, MAX(created_at) AS last_seen
+             FROM sync_logs
+             WHERE category IS NOT NULL AND category != '' AND status = 'failed'
+             GROUP BY category ORDER BY total DESC LIMIT :limit",
+            ['limit' => $limit]
+        );
+    }
+
+    /**
+     * Pesan gagal terbanyak beserta kategori + saran penanganannya.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function failuresWithHints(int $limit = 5): array
+    {
+        return $this->db->select(
+            "SELECT entity, message, category, hint, COUNT(*) AS total, MAX(created_at) AS last_seen
+             FROM sync_logs
+             WHERE status = 'failed'
+             GROUP BY entity, message, category, hint
+             ORDER BY total DESC LIMIT :limit",
+            ['limit' => $limit]
+        );
+    }
+
     public function totalsByStatus(): array
     {
         $rows = $this->db->select('SELECT status, COUNT(*) AS total FROM sync_logs GROUP BY status');
@@ -139,7 +172,7 @@ final class SyncLogRepository
         $conditions = [];
         $parameters = [];
 
-        foreach (['entity', 'status', 'run_id', 'action'] as $column) {
+        foreach (['entity', 'status', 'run_id', 'action', 'category'] as $column) {
             if (! empty($filters[$column]) && is_string($filters[$column])) {
                 $conditions[] = "{$column} = :{$column}";
                 $parameters[$column] = $filters[$column];
@@ -147,7 +180,7 @@ final class SyncLogRepository
         }
 
         if (! empty($filters['search']) && is_string($filters['search'])) {
-            $conditions[] = '(local_key LIKE :search OR message LIKE :search OR feeder_id LIKE :search)';
+            $conditions[] = '(local_key LIKE :search OR message LIKE :search OR feeder_id LIKE :search OR hint LIKE :search)';
             $parameters['search'] = '%'.$filters['search'].'%';
         }
 

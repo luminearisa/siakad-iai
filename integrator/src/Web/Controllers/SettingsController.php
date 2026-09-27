@@ -37,7 +37,7 @@ final class SettingsController
     {
         $input = $_POST;
 
-        $rateKeys = ['batch_size', 'max_requests_per_run'];
+        $rateKeys = ['batch_size', 'max_requests_per_run', 'request_delay_ms'];
         $values = [];
 
         foreach (array_keys(Settings::DEFAULTS) as $key) {
@@ -50,7 +50,12 @@ final class SettingsController
                 continue;
             }
 
-            if (in_array($key, ['siakad_verify_ssl', 'feeder_sandbox', 'feeder_verify_ssl', 'dry_run'], true)) {
+            // Ditulis otomatis oleh uji koneksi; formulir tidak boleh menghapusnya.
+            if ($key === 'feeder_version_checked_at') {
+                continue;
+            }
+
+            if (in_array($key, ['siakad_verify_ssl', 'feeder_sandbox', 'feeder_verify_ssl', 'dry_run', 'validate_before_push'], true)) {
                 $values[$key] = $raw === null ? '0' : '1';
 
                 continue;
@@ -64,6 +69,8 @@ final class SettingsController
 
             $values[$key] = is_string($raw) ? trim($raw) : null;
         }
+
+        $values['feeder_payload_style'] = $values['feeder_payload_style'] === 'flat' ? 'flat' : 'record';
 
         $values['siakad_base_url'] = rtrim((string) $values['siakad_base_url'], '/');
         $values['feeder_base_url'] = rtrim((string) $values['feeder_base_url'], '/');

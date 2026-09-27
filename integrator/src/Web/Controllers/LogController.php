@@ -25,6 +25,7 @@ final class LogController
             'status' => $this->string('status'),
             'search' => $this->string('search'),
             'run_id' => $this->string('run_id'),
+            'category' => $this->string('category'),
         ];
 
         $filters = array_filter($filters, static fn (?string $value) => $value !== null && $value !== '');
@@ -41,6 +42,7 @@ final class LogController
             'pages' => max(1, (int) ceil($total / self::PER_PAGE)),
             'entities' => array_keys($this->app->registry()->all()),
             'statusCounts' => $this->app->logRepository()->totalsByStatus(),
+            'categoryCounts' => $this->app->logRepository()->countsByCategory(),
         ]));
     }
 

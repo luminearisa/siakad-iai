@@ -31,6 +31,15 @@ final class Settings
         'dry_run' => '1',
         'batch_size' => '100',
         'max_requests_per_run' => '0',
+        // Bentuk body WS: `record` sesuai dokumentasi resmi, `flat` untuk instalasi lama.
+        'feeder_payload_style' => 'record',
+        // Tolak baris yang pasti ditolak feeder sebelum dikirim.
+        'validate_before_push' => '1',
+        // Jeda antar baris (ms) supaya server feeder tidak kewalahan.
+        'request_delay_ms' => '0',
+        // Versi aplikasi/WS feeder (diisi otomatis saat uji koneksi, bisa diisi manual).
+        'feeder_version' => '',
+        'feeder_version_checked_at' => '',
     ];
 
     public function __construct(

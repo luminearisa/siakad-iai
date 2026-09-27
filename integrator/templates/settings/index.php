@@ -104,6 +104,29 @@
                 <div class="help">Kode diambil dari SIAKAD (contoh <code>20251</code> untuk ganjil 2025/2026).</div>
             </div>
             <div class="field">
+                <label for="feeder_payload_style">Bentuk body Web Service</label>
+                <select id="feeder_payload_style" name="feeder_payload_style">
+                    <option value="record"<?= selected($values['feeder_payload_style'], 'record') ?>>record — sesuai dokumentasi resmi (disarankan)</option>
+                    <option value="flat"<?= selected($values['feeder_payload_style'], 'flat') ?>>flat — instalasi lama yang menolak `record`</option>
+                </select>
+                <div class="help">Fungsi tulis (Insert/Update) mengirim field di dalam <code>record</code>. Bila feeder menolak, aplikasi otomatis mencoba bentuk lain dan memakai yang berhasil.</div>
+            </div>
+            <div class="field">
+                <label for="feeder_version">Versi Neo Feeder terpasang</label>
+                <input type="text" id="feeder_version" name="feeder_version" value="<?= e($values['feeder_version']) ?>" placeholder="3.0.1">
+                <div class="help">
+                    Diisi otomatis saat “Uji koneksi”; lengkapi manual bila tidak terdeteksi.
+                    <?php if ($values['feeder_version_checked_at'] !== ''): ?>
+                        Terakhir diperiksa <?= e(human_datetime($values['feeder_version_checked_at'])) ?>.
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="field">
+                <label for="request_delay_ms">Jeda antar baris (ms)</label>
+                <input type="number" id="request_delay_ms" name="request_delay_ms" value="<?= e($values['request_delay_ms']) ?>" min="0" max="5000">
+                <div class="help">Gunakan 50–200 ms bila server feeder sering menolak karena sibuk.</div>
+            </div>
+            <div class="field">
                 <label for="batch_size">Batch size (baris per halaman SIAKAD)</label>
                 <input type="number" id="batch_size" name="batch_size" value="<?= e($values['batch_size']) ?>" min="1" max="500">
             </div>
@@ -111,6 +134,10 @@
                 <label for="max_requests_per_run">Batas permintaan per run (0 = tanpa batas)</label>
                 <input type="number" id="max_requests_per_run" name="max_requests_per_run" value="<?= e($values['max_requests_per_run']) ?>" min="0">
             </div>
+        </div>
+        <div class="checkbox field">
+            <input type="checkbox" id="validate_before_push" name="validate_before_push" value="1"<?= checked($values['validate_before_push']) ?>>
+            <label for="validate_before_push" style="margin:0">Validasi tiap baris terhadap aturan Neo Feeder sebelum dikirim (baris yang pasti ditolak tidak dikirim)</label>
         </div>
         <div class="checkbox field">
             <input type="checkbox" id="dry_run" name="dry_run" value="1"<?= checked($values['dry_run']) ?>>

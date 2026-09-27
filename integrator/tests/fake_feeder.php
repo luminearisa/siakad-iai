@@ -5,12 +5,16 @@ declare(strict_types=1);
 /**
  * Mock Neo Feeder Web Service untuk pengujian lokal.
  *
- * Meniru kontrak `ws/live2.php` / `ws/sandbox2.php`: satu endpoint POST, body JSON
- * dengan `act` (+ `token` untuk semua fungsi selain GetToken), dan respons
- * `{error_code, error_desc, data}`. Beberapa validasi sengaja ditiru supaya
- * skenario gagal ikut teruji:
+ * Meniru kontrak resmi `ws/live2.php` / `ws/sandbox2.php` (lihat dokumentasi resmi
+ * API Feeder dan materi Bimtek PDDikti):
  *
- * - NIK yang sudah dipakai akan ditolak (`error_code = 1`);
+ * - body JSON memuat `act`, `token` (kecuali GetToken), dan `record` untuk fungsi
+ *   tulis (`Insert*`/`Update*`/`Delete*`); fungsi baca memakai field datar
+ *   (`filter`, `order`, `limit`, `offset`);
+ * - respons selalu `{error_code, error_desc, data}`;
+ * - insert dengan field datar TIDAK dianggap sah, supaya klien diuji memakai
+ *   bentuk yang benar;
+ * - NIK yang sudah dipakai ditolak (`error_code = 1`);
  * - `GetPeriode` menolak permintaan tanpa filter/limit bila diinstruksikan;
  * - insert apa pun tanpa `id_prodi` yang dikenal ditolak.
  *
@@ -21,6 +25,24 @@ $raw = file_get_contents('php://input') ?: '{}';
 $request = json_decode($raw, true);
 
 header('Content-Type: application/json');
+
+// Dokumentasi resmi: field tulis dikirim di dalam `record`.
+$act = (string) $request['act'];
+$writable = (bool) preg_match('/^(Insert|Update|Delete)/i', $act);
+
+if ($writable) {
+    if (! isset($request['record']) || ! is_array($request['record'])) {
+        http_response_code(200);
+        echo json_encode([
+            'error_code' => 1,
+            'error_desc' => 'Isian tidak valid: fungsi '.$act.' memerlukan objek record.',
+            'data' => [],
+        ]);
+        exit;
+    }
+
+    $request = $request['record'] + ['token' => $request['token'] ?? null, 'act' => $act];
+}
 
 if (! is_array($request) || ! isset($request['act'])) {
     echo json_encode(['error_code' => 1, 'error_desc' => 'act tidak dikenali', 'data' => []]);

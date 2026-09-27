@@ -33,6 +33,83 @@
     </div>
 <?php endif; ?>
 
+<div class="grid cols-4">
+    <div class="stat">
+        <div class="label">Cakupan pelaporan</div>
+        <div class="value"><?= e(number_format((float) ($coverageTotals['percentage'] ?? 0), 2, ',', '.')) ?>%</div>
+        <div class="muted"><?= e(number_format((int) ($coverageTotals['synced'] ?? 0), 0, ',', '.')) ?> dari <?= e(number_format((int) ($coverageTotals['total'] ?? 0), 0, ',', '.')) ?> baris terkirim</div>
+    </div>
+    <div class="stat">
+        <div class="label">Data tidak valid</div>
+        <div class="value"><?= e(number_format((int) ($coverageTotals['invalid'] ?? 0), 0, ',', '.')) ?></div>
+        <div class="muted"><a href="/validation">lihat rincian validasi</a></div>
+    </div>
+    <div class="stat">
+        <div class="label">Versi Neo Feeder</div>
+        <div class="value"><?= e($feederVersion !== null && $feederVersion !== '' ? $feederVersion : '—') ?></div>
+        <div class="muted">
+            <?php if ($versionOk): ?>
+                memenuhi minimum <?= e($minimumVersion) ?>
+            <?php else: ?>
+                <span class="warn-text">minimum yang divalidasi: <?= e($minimumVersion) ?></span>
+            <?php endif; ?>
+        </div>
+    </div>
+    <div class="stat">
+        <div class="label">Validasi terakhir</div>
+        <div class="value" style="font-size:14px"><?= e($validationRun !== null ? human_datetime((string) ($validationRun['finished_at'] ?? $validationRun['started_at'])) : 'belum pernah') ?></div>
+        <div class="muted">
+            <?php if ($validationRun !== null): ?>
+                <?= e(number_format((int) $validationRun['total_records'], 0, ',', '.')) ?> baris diperiksa
+            <?php else: ?>
+                <a href="/validation">jalankan pemeriksaan</a>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<?php if ($coverageProdi !== []): ?>
+    <div class="card">
+        <h3>Persentase pelaporan per program studi</h3>
+        <table>
+            <thead>
+            <tr><th>Program studi</th><th>Tersinkron</th><th>Total</th><th>Cakupan</th></tr>
+            </thead>
+            <tbody>
+            <?php foreach ($coverageProdi as $row): ?>
+                <?php $total = (int) $row['total']; $synced = (int) $row['synced']; ?>
+                <tr>
+                    <td><?= e((string) ($row['prodi_label'] ?? $row['prodi'])) ?></td>
+                    <td><?= e(number_format($synced, 0, ',', '.')) ?></td>
+                    <td><?= e(number_format($total, 0, ',', '.')) ?></td>
+                    <td><?= e($total > 0 ? number_format($synced / $total * 100, 2, ',', '.') : '0,00') ?>%</td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <p class="muted"><a href="/validation">Lihat cakupan lengkap dan daftar temuan →</a></p>
+    </div>
+<?php endif; ?>
+
+<?php if ($topCodes !== []): ?>
+    <div class="card">
+        <h3>Alasan tidak valid terbanyak</h3>
+        <table>
+            <thead><tr><th>Kode</th><th>Entity</th><th>Jumlah</th><th>Saran penanganan</th></tr></thead>
+            <tbody>
+            <?php foreach ($topCodes as $finding): ?>
+                <tr>
+                    <td><code><?= e((string) $finding['code']) ?></code></td>
+                    <td><?= e((string) $finding['entity']) ?></td>
+                    <td><?= e(number_format((int) $finding['total'], 0, ',', '.')) ?></td>
+                    <td><?= e((string) ($finding['hint'] ?? $finding['message'] ?? '')) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+<?php endif; ?>
+
 <?php if ($check !== null): ?>
     <div class="grid cols-2">
         <?php foreach (['siakad' => 'SIAKAD', 'feeder' => 'Neo Feeder'] as $key => $label): ?>

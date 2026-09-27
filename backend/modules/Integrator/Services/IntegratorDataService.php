@@ -324,7 +324,7 @@ class IntegratorDataService
             ->with([
                 'studyProgram:id,code,name',
                 'curriculumYear:id,name,year',
-                'curriculumSemesters.subjects.course:id,code,name,credits',
+                'semesters.subjects.course:id,code,name,credits',
             ])
             ->whereNull('deleted_at');
 
@@ -353,7 +353,7 @@ class IntegratorDataService
                 'name' => $curriculum->studyProgram->name,
             ] : null,
             'curriculum_year' => $curriculum->curriculumYear?->name,
-            'semesters' => $curriculum->curriculumSemesters
+            'semesters' => $curriculum->semesters
                 ->sortBy('semester_number')
                 ->map(fn ($semester) => [
                     'semester_number' => $semester->semester_number,
@@ -635,6 +635,9 @@ class IntegratorDataService
             'nim' => $participant->student?->student_number,
             'name' => $participant->student?->full_name,
             'study_program_code' => $participant->student?->studyProgram?->code,
+            // Jenjang dipakai validasi pelaporan: aturan patch Neo Feeder 3.0.1
+            // melarang pengiriman nomor ijazah untuk D3/D4/S1/S2/S3.
+            'study_program_degree' => $participant->student?->studyProgram?->degree?->value,
             'status' => is_string($participant->status) ? $participant->status : $participant->status?->value,
             'period' => $participant->period?->name,
             'feeder_semester_code' => $participant->period?->semester

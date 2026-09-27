@@ -6,6 +6,7 @@ namespace Integrator\NeoFeeder;
 
 use Integrator\Support\Http;
 use RuntimeException;
+use Throwable;
 
 /**
  * Client for the official Neo Feeder web service.
@@ -25,8 +26,18 @@ final class NeoFeederClient
 {
     private ?string $token = null;
 
+    /**
+     * Gaya body untuk fungsi tulis: `record` (dokumentasi resmi) atau `flat`.
+     */
+    private string $preferredStyle = 'record';
+
+    private bool $styleFallback = false;
+
     private int $tokenExpiresAt = 0;
 
+    /**
+     * @param  string  $payloadStyle  `record` (default, sesuai dokumentasi) atau `flat`
+     */
     public function __construct(
         private readonly Http $http,
         private readonly string $baseUrl,
@@ -34,8 +45,10 @@ final class NeoFeederClient
         private readonly string $password,
         private readonly bool $sandbox = true,
         private readonly string $cachePath = '',
-        private readonly bool $verifySsl = false
+        private readonly bool $verifySsl = false,
+        string $payloadStyle = 'record'
     ) {
+        $this->preferredStyle = $payloadStyle === 'flat' ? 'flat' : 'record';
     }
 
     /**
@@ -151,7 +164,7 @@ final class NeoFeederClient
      */
     public function call(string $act, array $payload = [], bool $retryOnExpiredToken = true): FeederResponse
     {
-        $response = $this->raw($act, ['token' => $this->token()] + $payload);
+        $response = $this->raw($act, $this->body($act, $payload, $this->preferredStyle));
 
         if ($response->transportError() !== null) {
             return $response;
@@ -170,7 +183,71 @@ final class NeoFeederClient
             return $this->call($act, $payload, false);
         }
 
+        // Dokumentasi resmi menaruh field tulis di dalam `record`, tetapi sebagian
+        // instalasi masih memakai bentuk datar. Sekali gagal dengan pesan berbentuk
+        // isian, permintaan diulang memakai gaya lain supaya operator tidak macet.
+        if ($errorCode !== 0 && $this->isWritable($act) && $this->looksLikeShapeError($errorDesc)) {
+            $alternative = $this->preferredStyle === 'record' ? 'flat' : 'record';
+            $retry = $this->raw($act, $this->body($act, $payload, $alternative));
+
+            if ($retry->transportError() === null && $retry->errorCode() === 0) {
+                $this->preferredStyle = $alternative;
+                $this->styleFallback = true;
+
+                return $retry;
+            }
+
+            $this->styleFallback = true;
+        }
+
         return $response;
+    }
+
+    /**
+     * Bentuk body menurut dokumentasi Web Service Neo Feeder: fungsi tulis
+     * (Insert/Update/Delete) memakai `record`, fungsi baca datar.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function body(string $act, array $payload, string $style): array
+    {
+        $body = ['token' => $this->token()];
+
+        if ($style === 'flat' || ! $this->isWritable($act)) {
+            return $body + $payload;
+        }
+
+        return $body + ['record' => $payload];
+    }
+
+    private function isWritable(string $act): bool
+    {
+        return (bool) preg_match('/^(Insert|Update|Delete)/i', $act);
+    }
+
+    private function looksLikeShapeError(string $description): bool
+    {
+        foreach (['record', 'isian', 'tidak valid', 'tidak lengkap', 'wajib', 'required', 'format', 'field', 'parameter'] as $keyword) {
+            if (stripos($description, $keyword) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Gaya penulisan yang akhirnya dipakai (berguna untuk log saat terjadi fallback).
+     */
+    public function preferredStyle(): string
+    {
+        return $this->preferredStyle;
+    }
+
+    public function styleFallbackUsed(): bool
+    {
+        return $this->styleFallback;
     }
 
     /**
@@ -215,6 +292,75 @@ final class NeoFeederClient
      *
      * @return array<int, array<string, mixed>>
      */
+    /**
+     * Deteksi versi aplikasi/WS feeder bila tersedia.
+     *
+     * Neo Feeder tidak menyediakan act khusus versi pada semua patch, jadi fungsi
+     * ini mencoba beberapa act yang lazim lalu mencari nilai yang berbentuk nomor
+     * versi. Bila tidak ada yang bisa dibaca, operator mengisi versinya manual di
+     * halaman Pengaturan — dashboard akan mengingatkan bila versinya di bawah
+     * minimum yang didukung.
+     *
+     * @return array{version: string, source: string}|null
+     */
+    public function detectVersion(): ?array
+    {
+        foreach (['GetInformasiUmum', 'GetProfilPT', 'GetDictionary'] as $act) {
+            try {
+                $response = $this->call($act);
+            } catch (Throwable) {
+                continue;
+            }
+
+            if (! $response->isOk()) {
+                continue;
+            }
+
+            $version = $this->findVersion($response->payload());
+
+            if ($version !== null) {
+                return ['version' => $version, 'source' => $act];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function findVersion(array $payload, int $depth = 0): ?string
+    {
+        if ($depth > 3) {
+            return null;
+        }
+
+        foreach ($payload as $key => $value) {
+            if (is_array($value)) {
+                $found = $this->findVersion($value, $depth + 1);
+
+                if ($found !== null) {
+                    return $found;
+                }
+
+                continue;
+            }
+
+            if (! is_scalar($value)) {
+                continue;
+            }
+
+            $key = strtolower((string) $key);
+
+            if (preg_match('/(versi|version|patch|aplikasi)/', $key) === 1
+                && preg_match('/\d+\.\d+(\.\d+)?/', (string) $value) === 1) {
+                return (string) $value;
+            }
+        }
+
+        return null;
+    }
+
     public function dictionary(): array
     {
         return $this->call('GetDictionary', ['limit' => 0, 'offset' => 0])->rows();

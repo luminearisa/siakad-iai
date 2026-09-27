@@ -416,6 +416,15 @@ Dua permukaan terpisah:
 * **DELETE `/api/v1/integrator/keys/{key}`** — hapus kunci yang sudah dicabut.
 * **GET `/api/v1/integrator/logs`** · **GET `/api/v1/integrator/logs/stats`** — log & statistik.
 
+Catatan payload untuk pelaporan PDDikti:
+
+* endpoint mahasiswa (`/v1/students`) menyertakan `nik`, `nisn`, `email`, `phone`, dan
+  `mother_name` **hanya bila kunci API memegang scope `students.pii`**; tanpa scope itu
+  direturn dalam bentuk ter-mask/null. Aplikasi `integrator/` melaporkan kondisi ini sebagai
+  temuan `data_tertutup_pii` pada halaman Validasi, bukan mengirim data palsu;
+* endpoint lulusan (`/v1/graduates`) menyertakan `study_program_degree` (jenjang prodi) yang
+  dipakai validasi aturan patch Neo Feeder 3.0.1 (nomor ijazah hanya untuk jenjang tertentu).
+
 Contoh menerbitkan kunci:
 
 ```bash

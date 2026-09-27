@@ -15,7 +15,8 @@ final class SyncOptions
         public readonly ?int $semesterId = null,
         public readonly int $limit = 0,
         public readonly bool $force = false,
-        public readonly ?string $onlyLocalKey = null
+        public readonly ?string $onlyLocalKey = null,
+        public readonly bool $skipValidation = false
     ) {
     }
 
@@ -35,7 +36,8 @@ final class SyncOptions
             force: ! empty($input['force']),
             onlyLocalKey: isset($input['local_key']) && is_string($input['local_key']) && $input['local_key'] !== ''
                 ? $input['local_key']
-                : null
+                : null,
+            skipValidation: ! empty($input['skip_validation'])
         );
     }
 

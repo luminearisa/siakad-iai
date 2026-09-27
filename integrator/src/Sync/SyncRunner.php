@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Integrator\Sync;
 
+use Integrator\NeoFeeder\ErrorCatalog;
 use Integrator\NeoFeeder\NeoFeederClient;
 use Integrator\Siakad\SiakadClient;
 use Integrator\Siakad\SiakadException;
 use Integrator\Sync\Syncers\FeederReferencePuller;
+use Integrator\Validation\FeederValidator;
 use Integrator\Support\Database;
+use Integrator\Support\Settings;
 use RuntimeException;
 use Throwable;
 
@@ -21,6 +24,12 @@ use Throwable;
  * - insert-only endpoints are never called twice for the same row;
  * - rows missing required feeder fields are skipped with an explicit message
  *   instead of being pushed half-empty;
+ * - setiap baris divalidasi lebih dulu dengan aturan Neo Feeder (`config/feeder_rules.php`):
+ *   baris yang pasti ditolak feeder dicatat sebagai `invalid` dan TIDAK dikirim;
+ * - pesan error feeder diterjemahkan katalog error menjadi kategori + langkah
+ *   penanganan, sehingga operator tahu apa yang harus diperbaiki;
+ * - jeda antar baris bisa diatur (`request_delay_ms`) agar server feeder yang
+ *   sedang sibuk tidak dihujani permintaan;
  * - `dry-run` (the default) does everything except the actual feeder call;
  * - the run stops after a burst of failures, because 200 rejected rows usually
  *   mean one systematic problem (wrong id_prodi, locked period, ...).
@@ -36,7 +45,10 @@ final class SyncRunner
         private readonly Registry $registry,
         private readonly MappingRepository $mappings,
         private readonly ReferenceResolver $references,
-        private readonly SyncLogRepository $logRepository
+        private readonly SyncLogRepository $logRepository,
+        private readonly ?FeederValidator $validator = null,
+        private readonly ?ErrorCatalog $errorCatalog = null,
+        private readonly ?Settings $settings = null
     ) {
     }
 
@@ -94,6 +106,7 @@ final class SyncRunner
             'failed' => $result->failed,
             'skipped' => $result->skipped,
             'planned' => $result->planned,
+            'invalid' => $result->invalid,
             'notes' => $result->error,
         ], ['run_id' => $runId]);
 
@@ -130,10 +143,15 @@ final class SyncRunner
                         'succeeded' => $result->succeeded += 1,
                         'planned' => $result->planned += 1,
                         'skipped' => $result->skipped += 1,
+                        'invalid' => $result->invalid += 1,
                         default => $result->failed += 1,
                     };
 
-                    $consecutiveFailures = $status === 'failed' ? $consecutiveFailures + 1 : 0;
+                    $consecutiveFailures = in_array($status, ['failed', 'invalid'], true) ? $consecutiveFailures + 1 : 0;
+
+                    if (! $options->dryRun) {
+                        $this->throttle();
+                    }
 
                     if ($consecutiveFailures >= self::MAX_CONSECUTIVE_FAILURES) {
                         $context->log(
@@ -187,6 +205,33 @@ final class SyncRunner
         $mapping = $context->mapping($syncer->key(), $localKey);
         $payload = $syncer->payload($row, $context, $mapping !== null);
 
+        if ($this->shouldValidate($options)) {
+            $violations = $this->validator->validateRow($syncer->key(), $localKey, $payload, $row, $options->semesterCode);
+            $errors = array_values(array_filter($violations, static fn ($violation) => $violation->isError()));
+
+            if ($errors !== []) {
+                $first = $errors[0];
+                $category = $this->errorCatalog?->categoryOf($first->message) ?? 'validasi_data';
+                $hint = $first->hint ?? $this->errorCatalog?->hintFor($first->message);
+
+                $context->log(
+                    'validate',
+                    'invalid',
+                    $localKey,
+                    $mapping['feeder_id'] ?? null,
+                    $first->logMessage().' ('.$this->countLabel(count($errors)).' pada baris ini)',
+                    [
+                        'payload' => $payload,
+                        'violations' => array_map(static fn ($violation) => $violation->toArray(), array_slice($errors, 0, 10)),
+                    ],
+                    $category,
+                    $hint
+                );
+
+                return 'invalid';
+            }
+        }
+
         $missing = [];
         foreach ($syncer->requiredFields() as $field) {
             if (! array_key_exists($field, $payload) || $payload[$field] === '') {
@@ -232,19 +277,32 @@ final class SyncRunner
         try {
             $response = $this->feeder->call($act, $payload);
         } catch (Throwable $exception) {
-            $context->log('push', 'failed', $localKey, $mapping['feeder_id'] ?? null, $exception->getMessage(), ['payload' => $payload]);
-
-            return 'failed';
-        }
-
-        if (! $response->isOk()) {
             $context->log(
                 'push',
                 'failed',
                 $localKey,
                 $mapping['feeder_id'] ?? null,
-                $response->message(),
-                ['payload' => $payload, 'response' => $response->payload()]
+                $exception->getMessage(),
+                ['payload' => $payload],
+                $this->errorCatalog?->categoryOf($exception->getMessage()),
+                $this->errorCatalog?->hintFor($exception->getMessage())
+            );
+
+            return 'failed';
+        }
+
+        if (! $response->isOk()) {
+            $message = $response->message();
+
+            $context->log(
+                'push',
+                'failed',
+                $localKey,
+                $mapping['feeder_id'] ?? null,
+                $message,
+                ['payload' => $payload, 'response' => $response->payload()],
+                $this->errorCatalog?->categoryOf($message),
+                $this->errorCatalog?->hintFor($message)
             );
 
             return 'failed';
@@ -257,6 +315,36 @@ final class SyncRunner
         $context->log('push', 'succeeded', $localKey, $feederId, "{$act} berhasil.", ['response' => $response->summary(200)]);
 
         return 'succeeded';
+    }
+
+    /**
+     * Validasi pra-kirim aktif secara default; bisa dimatikan lewat setting atau
+     * opsi `--skip-validation` bila data memang sudah diketahui bersih.
+     */
+    private function shouldValidate(SyncOptions $options): bool
+    {
+        if ($options->skipValidation || $this->validator === null) {
+            return false;
+        }
+
+        return $this->settings?->bool('validate_before_push', true) ?? true;
+    }
+
+    /**
+     * Jeda antar baris agar server feeder tidak dianggap membanjiri permintaan.
+     */
+    private function throttle(): void
+    {
+        $milliseconds = $this->settings?->int('request_delay_ms', 0) ?? 0;
+
+        if ($milliseconds > 0) {
+            usleep($milliseconds * 1000);
+        }
+    }
+
+    private function countLabel(int $total): string
+    {
+        return number_format($total, 0, ',', '.').' temuan';
     }
 
     /**

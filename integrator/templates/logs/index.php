@@ -67,6 +67,7 @@ $query = static function (array $overrides = []) use ($filters): string {
             <th>Waktu</th>
             <th>Entity</th>
             <th>Status</th>
+            <th>Kategori</th>
             <th>Kunci lokal</th>
             <th>ID feeder</th>
             <th>Pesan</th>
@@ -75,16 +76,28 @@ $query = static function (array $overrides = []) use ($filters): string {
         </thead>
         <tbody>
         <?php if ($logs === []): ?>
-            <tr><td colspan="7" class="empty">Belum ada log pada filter ini.</td></tr>
+            <tr><td colspan="8" class="empty">Belum ada log pada filter ini.</td></tr>
         <?php endif; ?>
         <?php foreach ($logs as $log): ?>
             <tr>
                 <td class="nowrap"><?= e(human_datetime((string) $log['created_at'])) ?></td>
                 <td><a href="/logs?entity=<?= e((string) $log['entity']) ?>"><?= e((string) $log['entity']) ?></a></td>
                 <td><span class="<?= status_badge((string) $log['status']) ?>"><?= e((string) $log['status']) ?></span></td>
+                <td>
+                    <?php if (! empty($log['category'])): ?>
+                        <a class="badge-warn" href="/logs?category=<?= e(urlencode((string) $log['category'])) ?>"><?= e((string) $log['category']) ?></a>
+                    <?php else: ?>
+                        <span class="muted">—</span>
+                    <?php endif; ?>
+                </td>
                 <td><code><?= e((string) ($log['local_key'] ?? '—')) ?></code></td>
                 <td><code><?= e((string) ($log['feeder_id'] ?? '—')) ?></code></td>
-                <td><?= e((string) ($log['message'] ?? '')) ?></td>
+                <td>
+                    <?= e((string) ($log['message'] ?? '')) ?>
+                    <?php if (! empty($log['hint'])): ?>
+                        <br><span class="muted">Saran: <?= e((string) $log['hint']) ?></span>
+                    <?php endif; ?>
+                </td>
                 <td>
                     <?php if (! empty($log['response'])): ?>
                         <details>
